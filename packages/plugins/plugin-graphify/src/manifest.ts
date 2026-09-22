@@ -1,7 +1,9 @@
 import type { PaperclipPluginManifestV1 } from "@paperclipai/plugin-sdk";
+import { readFileSync } from "node:fs";
 
 export const PLUGIN_ID = "paperclipai.plugin-graphify";
 export const GRAPHIFY_FOLDER_KEY = "graphify-data";
+export const GRAPHIFY_SKILL_KEY = "graphify";
 
 const manifest: PaperclipPluginManifestV1 = {
   id: PLUGIN_ID,
@@ -21,6 +23,7 @@ const manifest: PaperclipPluginManifestV1 = {
     "project.workspaces.read",
     "ui.sidebar.register",
     "ui.page.register",
+    "skills.managed",
   ],
   entrypoints: {
     worker: "./dist/worker.js",
@@ -113,6 +116,19 @@ const manifest: PaperclipPluginManifestV1 = {
         },
         required: ["companyId"],
       },
+    },
+  ],
+  skills: [
+    {
+      skillKey: GRAPHIFY_SKILL_KEY,
+      displayName: "Graphify",
+      slug: "graphify",
+      description:
+        "Prefer Graphify knowledge graph tools over expensive grep/find for structural codebase questions.",
+      markdown: readFileSync(
+        new URL("../skills/graphify/SKILL.md", import.meta.url),
+        "utf8",
+      ),
     },
   ],
   ui: {

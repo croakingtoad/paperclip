@@ -1,6 +1,6 @@
 {
   "name": "@paperclipai/plugin-graphify",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Graphify knowledge graph plugin — CLI wrapper tools for agents and interactive graph visualization",
   "license": "MIT",
   "homepage": "https://github.com/paperclipai/paperclip",
@@ -25,7 +25,8 @@
     "types": "./dist/index.d.ts"
   },
   "files": [
-    "dist"
+    "dist",
+    "skills"
   ],
   "paperclipPlugin": {
     "manifest": "./dist/manifest.js",
@@ -34,7 +35,7 @@
   },
   "scripts": {
     "prebuild": "pnpm --filter @paperclipai/plugin-sdk ensure-build-deps",
-    "build": "tsc && node ./scripts/build-ui.mjs",
+    "build": "node ./esbuild.config.mjs",
     "clean": "rm -rf dist",
     "typecheck": "pnpm --filter @paperclipai/plugin-sdk ensure-build-deps && tsc --noEmit",
     "test": "vitest run"

@@ -2,7 +2,7 @@ import { definePlugin, runWorker } from "@paperclipai/plugin-sdk";
 import type { PluginContext, ToolRunContext, ToolResult } from "@paperclipai/plugin-sdk";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { GRAPHIFY_FOLDER_KEY } from "./manifest.js";
+import { GRAPHIFY_FOLDER_KEY, GRAPHIFY_SKILL_KEY } from "./manifest.js";
 import {
   graphifyQuery,
   graphifyPath,
@@ -154,6 +154,15 @@ const plugin = definePlugin({
       const graphDir = await resolveGraphPath(ctx, companyId);
       const graph = await loadGraph(graphDir);
       return { results: searchNodes(graph, query, limit) };
+    });
+
+    // -- Managed skill reconciliation --
+
+    ctx.actions.register("reconcile-managed-skills", async (params) => {
+      const companyId = readString((params as Record<string, unknown>).companyId);
+      if (!companyId) throw new Error("companyId required");
+      const resolved = await ctx.skills.managed.reconcile(GRAPHIFY_SKILL_KEY, companyId);
+      return { managedSkills: [resolved] };
     });
 
     // -- Agent tool handlers --
