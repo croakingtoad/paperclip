@@ -37,9 +37,9 @@ const manifest: PaperclipPluginManifestV1 = {
   localFolders: [
     {
       folderKey: GRAPHIFY_FOLDER_KEY,
-      displayName: "Graphify output",
+      displayName: "Graphify output (company-wide default)",
       description:
-        "Company-scoped local folder containing graphify-out/ output (graph.json, GRAPH_REPORT.md, index.html).",
+        "Company-wide default path to a graphify-out/ directory (must contain graph.json). Applies to all projects unless a project overrides it with the GRAPHIFY_GRAPH_PATH environment variable in its own configuration.",
       access: "read",
       requiredFiles: ["graph.json"],
     },

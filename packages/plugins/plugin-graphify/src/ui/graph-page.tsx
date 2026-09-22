@@ -227,19 +227,22 @@ function HtmlIframeView({
 
 function UnconfiguredState() {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 py-16">
+    <div className="flex flex-col items-center justify-center gap-4 py-16">
       <div className="text-sm font-medium text-foreground">
         Graphify data not available
       </div>
-      <div className="max-w-md text-center text-xs text-muted-foreground">
-        Set{" "}
-        <code className="rounded bg-muted px-1 py-0.5">
-          GRAPHIFY_GRAPH_PATH
-        </code>{" "}
-        on this project to point to your <code>graph.json</code> file, or
-        configure the{" "}
-        <code className="rounded bg-muted px-1 py-0.5">graphify-data</code>{" "}
-        local folder in plugin settings.
+      <div className="max-w-lg space-y-3 text-center text-xs text-muted-foreground">
+        <p>Configure a path to a directory containing <code className="rounded bg-muted px-1 py-0.5">graph.json</code>:</p>
+        <div className="mx-auto max-w-md space-y-2 text-left">
+          <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+            <div className="font-medium text-foreground">Per-project</div>
+            Set <code className="rounded bg-muted px-1 py-0.5">GRAPHIFY_GRAPH_PATH</code> in this project&apos;s environment variables (Configuration tab). Only affects this project.
+          </div>
+          <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+            <div className="font-medium text-foreground">Company-wide default</div>
+            Set the <code className="rounded bg-muted px-1 py-0.5">Graphify output</code> local folder on the plugin settings page. Applies to all projects that don&apos;t have their own <code className="rounded bg-muted px-1 py-0.5">GRAPHIFY_GRAPH_PATH</code>.
+          </div>
+        </div>
       </div>
     </div>
   );
