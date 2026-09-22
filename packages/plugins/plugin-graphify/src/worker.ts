@@ -9,6 +9,7 @@ import {
   graphifyPath,
   graphifyExplain,
   graphifyBuild,
+  graphifyTree,
 } from "./graphify-cli.js";
 
 interface GraphNode {
@@ -247,19 +248,33 @@ const plugin = definePlugin({
       if (!companyId) throw new Error("companyId required");
       const graphDir = await resolveGraphPathForProject(ctx, companyId, projectId);
       const entries = await readdir(graphDir);
-      const htmlFiles = entries.filter((e) => e.endsWith(".html")).sort();
-      const views: Array<{ id: string; name: string; file?: string }> = [
-        { id: "communities", name: "Communities" },
+      const htmlFiles = new Set(entries.filter((e) => e.endsWith(".html")));
+      const views: Array<{ id: string; name: string; file?: string; generated: boolean }> = [
+        { id: "communities", name: "Communities", generated: true },
       ];
-      for (const file of htmlFiles) {
+      for (const file of Object.keys(KNOWN_HTML_NAMES)) {
         views.push({
           id: file,
-          name: KNOWN_HTML_NAMES[file] ?? file.replace(/\.html$/, "").replace(/[_-]/g, " "),
+          name: KNOWN_HTML_NAMES[file],
           file,
+          generated: htmlFiles.has(file),
+        });
+        htmlFiles.delete(file);
+      }
+      for (const file of [...htmlFiles].sort()) {
+        views.push({
+          id: file,
+          name: file.replace(/\.html$/, "").replace(/[_-]/g, " "),
+          file,
+          generated: true,
         });
       }
       return { views };
     });
+
+    const AUTO_GENERATE: Record<string, (dir: string) => Promise<string>> = {
+      "GRAPH_TREE.html": graphifyTree,
+    };
 
     ctx.data.register("graph-html-view", async (params) => {
       const companyId = readString(params.companyId);
@@ -270,7 +285,15 @@ const plugin = definePlugin({
         throw new Error("invalid view file");
       }
       const graphDir = await resolveGraphPathForProject(ctx, companyId, projectId);
-      return { html: await readFile(join(graphDir, viewFile), "utf8") };
+      const filePath = join(graphDir, viewFile);
+      try {
+        await stat(filePath);
+      } catch {
+        const gen = AUTO_GENERATE[viewFile];
+        if (!gen) throw new Error(`${viewFile} not found`);
+        await gen(graphDir);
+      }
+      return { html: await readFile(filePath, "utf8") };
     });
 
     // -- Managed skill reconciliation --

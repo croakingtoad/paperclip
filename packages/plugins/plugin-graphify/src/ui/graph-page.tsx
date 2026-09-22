@@ -38,6 +38,7 @@ interface ViewInfo {
   id: string;
   name: string;
   file?: string;
+  generated?: boolean;
 }
 
 // -- Small shared components --
@@ -169,10 +170,12 @@ function HtmlIframeView({
   companyId,
   projectId,
   viewFile,
+  generated = true,
 }: {
   companyId: string;
   projectId?: string | null;
   viewFile: string;
+  generated?: boolean;
 }) {
   const { data, loading, error } = usePluginData<{ html: string }>(
     "graph-html-view",
@@ -196,7 +199,7 @@ function HtmlIframeView({
     return (
       <div className="flex items-center justify-center py-16">
         <div className="text-sm text-muted-foreground">
-          Loading visualization…
+          {generated ? "Loading visualization…" : "Generating visualization — this may take a moment…"}
         </div>
       </div>
     );
@@ -374,6 +377,7 @@ function GraphViewContent({
             companyId={companyId}
             projectId={projectId}
             viewFile={view.file}
+            generated={view.generated}
           />
         ) : null;
       })()}
