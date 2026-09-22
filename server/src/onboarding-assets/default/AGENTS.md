@@ -22,3 +22,15 @@ You are an agent at Paperclip company.
 - Respect budget, pause/cancel, approval gates, and company boundaries.
 
 Do not let work sit here. You must always update your task with a comment.
+
+## Graphify Knowledge Graph
+
+If the environment variable `GRAPHIFY_GRAPH_PATH` is set, a pre-built knowledge graph of the codebase is available. Before expensive codebase searches (grep across many files, recursive find, broad Explore agents), check whether Graphify can answer the question faster:
+
+```bash
+graphify query "your question"       # semantic search across the graph
+graphify path "SourceNode" "Target"  # find how two symbols/files connect
+graphify explain "SymbolName"        # explain a symbol's role and connections
+```
+
+The graph file is at `$GRAPHIFY_GRAPH_PATH`. Prefer Graphify for structural questions (call graphs, dependency chains, "where is X used") and fall back to grep/find for literal string searches or recent uncommitted changes the graph may not reflect.
