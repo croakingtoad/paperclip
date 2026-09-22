@@ -27,6 +27,7 @@ const manifest: PaperclipPluginManifestV1 = {
     "project.workspaces.read",
     "ui.sidebar.register",
     "ui.page.register",
+    "ui.detailTab.register",
     "skills.managed",
   ],
   entrypoints: {
@@ -150,6 +151,14 @@ const manifest: PaperclipPluginManifestV1 = {
         displayName: "Knowledge Graph",
         exportName: "GraphPage",
         routePath: "graphify",
+      },
+      {
+        type: "detailTab",
+        id: "graphify-project-tab",
+        displayName: "Graphify",
+        exportName: "GraphifyProjectTab",
+        entityTypes: ["project"],
+        order: 50,
       },
     ],
   },

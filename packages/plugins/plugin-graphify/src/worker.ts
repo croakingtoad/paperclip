@@ -1,7 +1,7 @@
 import { definePlugin, runWorker } from "@paperclipai/plugin-sdk";
 import type { PluginContext, ToolRunContext, ToolResult } from "@paperclipai/plugin-sdk";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { join, dirname } from "node:path";
 import { GRAPHIFY_FOLDER_KEY, GRAPHIFY_SKILL_KEY } from "./manifest.js";
 import {
   graphifyQuery,
@@ -60,6 +60,49 @@ async function resolveGraphPath(ctx: PluginContext, companyId: string): Promise<
     );
   }
   return status.path;
+}
+
+function extractPlainEnvValue(binding: unknown): string | null {
+  if (typeof binding === "string") return binding;
+  if (binding && typeof binding === "object" && "type" in binding && (binding as { type: string }).type === "plain") {
+    return (binding as { value: string }).value ?? null;
+  }
+  return null;
+}
+
+async function resolveGraphDir(envPath: string): Promise<string> {
+  const s = await stat(envPath);
+  if (s.isDirectory()) return envPath;
+  if (s.isFile() && envPath.endsWith(".json")) return dirname(envPath);
+  throw new Error(`GRAPHIFY_GRAPH_PATH is not a valid path: ${envPath}`);
+}
+
+async function resolveGraphPathForProject(
+  ctx: PluginContext,
+  companyId: string,
+  projectId: string | null,
+): Promise<string> {
+  // Try local folder first
+  try {
+    return await resolveGraphPath(ctx, companyId);
+  } catch {
+    // fall through
+  }
+
+  // Try project env var
+  if (projectId) {
+    const project = await ctx.projects.get(projectId, companyId);
+    const envVal = project?.env?.GRAPHIFY_GRAPH_PATH;
+    if (envVal) {
+      const path = extractPlainEnvValue(envVal);
+      if (path) return resolveGraphDir(path);
+    }
+  }
+
+  throw new Error(
+    "Graphify data not found. Either configure the graphify-data local folder " +
+    "in plugin settings, or set GRAPHIFY_GRAPH_PATH in the project env.",
+  );
 }
 
 async function loadGraph(graphDir: string): Promise<GraphData> {
@@ -130,28 +173,31 @@ const plugin = definePlugin({
 
     ctx.data.register("graph-overview", async (params) => {
       const companyId = readString(params.companyId);
+      const projectId = readString(params.projectId) || null;
       if (!companyId) throw new Error("companyId required");
-      const graphDir = await resolveGraphPath(ctx, companyId);
+      const graphDir = await resolveGraphPathForProject(ctx, companyId, projectId);
       const graph = await loadGraph(graphDir);
       return buildOverview(graph);
     });
 
     ctx.data.register("graph-community", async (params) => {
       const companyId = readString(params.companyId);
+      const projectId = readString(params.projectId) || null;
       const communityId = Number(params.communityId);
       if (!companyId) throw new Error("companyId required");
       if (!Number.isFinite(communityId)) throw new Error("communityId required");
-      const graphDir = await resolveGraphPath(ctx, companyId);
+      const graphDir = await resolveGraphPathForProject(ctx, companyId, projectId);
       const graph = await loadGraph(graphDir);
       return communityNodes(graph, communityId);
     });
 
     ctx.data.register("graph-search", async (params) => {
       const companyId = readString(params.companyId);
+      const projectId = readString(params.projectId) || null;
       const query = readString(params.query);
       const limit = Math.min(Number(params.limit) || 50, 200);
       if (!companyId || !query) throw new Error("companyId and query required");
-      const graphDir = await resolveGraphPath(ctx, companyId);
+      const graphDir = await resolveGraphPathForProject(ctx, companyId, projectId);
       const graph = await loadGraph(graphDir);
       return { results: searchNodes(graph, query, limit) };
     });

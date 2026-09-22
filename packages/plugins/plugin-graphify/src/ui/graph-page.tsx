@@ -284,15 +284,17 @@ function BubbleChart({
 function CommunityDetail({
   communityId,
   companyId,
+  projectId,
   onClose,
 }: {
   communityId: number;
   companyId: string;
+  projectId?: string | null;
   onClose: () => void;
 }) {
   const { data, loading, error } = usePluginData<CommunityData>(
     "graph-community",
-    { companyId, communityId },
+    { companyId, communityId, projectId: projectId ?? undefined },
   );
 
   return (
@@ -355,13 +357,13 @@ function CommunityDetail({
 
 // -- Search panel --
 
-function SearchPanel({ companyId }: { companyId: string }) {
+function SearchPanel({ companyId, projectId }: { companyId: string; projectId?: string | null }) {
   const [query, setQuery] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
 
   const { data, loading } = usePluginData<SearchResult>(
     "graph-search",
-    searchTerm ? { companyId, query: searchTerm, limit: 50 } : undefined,
+    searchTerm ? { companyId, projectId: projectId ?? undefined, query: searchTerm, limit: 50 } : undefined,
   );
 
   const handleSubmit = useCallback(
@@ -534,6 +536,166 @@ export function GraphPage() {
         />
       )}
     </div>
+  );
+}
+
+// -- Fullscreen wrapper --
+
+function FullscreenWrapper({
+  isFullscreen,
+  onToggle,
+  children,
+}: {
+  isFullscreen: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  if (!isFullscreen) return <>{children}</>;
+  return (
+    <div
+      className="fixed inset-0 z-50 overflow-auto bg-background"
+      style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999 }}
+    >
+      <div className="flex h-full flex-col">
+        <div className="flex items-center justify-between border-b border-border px-4 py-2">
+          <span className="text-sm font-medium text-foreground">Graphify — Knowledge Graph</span>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="inline-flex h-7 items-center rounded-md border border-border bg-background px-2.5 text-xs text-muted-foreground hover:text-foreground"
+          >
+            Exit fullscreen
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto p-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// -- Project detail tab --
+
+export function GraphifyProjectTab() {
+  const { companyId, projectId } = useHostContext();
+  const [selectedCommunity, setSelectedCommunity] = useState<number | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const { data, loading, error, refresh } = usePluginData<GraphOverview>(
+    "graph-overview",
+    companyId ? { companyId, projectId: projectId ?? undefined } : undefined,
+  );
+
+  const toggleFullscreen = useCallback(() => setIsFullscreen((v) => !v), []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isFullscreen) setIsFullscreen(false);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [isFullscreen]);
+
+  if (!companyId) {
+    return <UnconfiguredState />;
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <div className="text-sm text-muted-foreground">Loading graph data…</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    const isNotConfigured =
+      error.message?.includes("not configured") ||
+      error.message?.includes("not found") ||
+      error.message?.includes("unhealthy");
+    if (isNotConfigured) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-3 py-16">
+          <div className="text-sm font-medium text-foreground">
+            Graphify data not available
+          </div>
+          <div className="max-w-md text-center text-xs text-muted-foreground">
+            Set the <code className="rounded bg-muted px-1 py-0.5">GRAPHIFY_GRAPH_PATH</code>{" "}
+            env variable on this project to point to your <code>graph.json</code> file,
+            or configure the <code className="rounded bg-muted px-1 py-0.5">graphify-data</code>{" "}
+            local folder in plugin settings.
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-3 px-4 py-8">
+        <div className="text-sm text-destructive">{error.message}</div>
+        <button type="button" onClick={() => refresh()} className="text-xs text-muted-foreground hover:text-foreground">
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const content = (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-foreground">Knowledge Graph</h2>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => refresh()}
+            className="inline-flex h-7 items-center rounded-md border border-border bg-background px-2.5 text-xs text-muted-foreground hover:text-foreground"
+          >
+            Refresh
+          </button>
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="inline-flex h-7 items-center rounded-md border border-border bg-background px-2.5 text-xs text-muted-foreground hover:text-foreground"
+          >
+            {isFullscreen ? "Exit fullscreen" : "Expand"}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-4 gap-3">
+        <Stat label="Nodes" value={data.nodeCount} />
+        <Stat label="Edges" value={data.linkCount} />
+        <Stat label="Communities" value={data.communityCount} />
+        <Stat label="Built at" value={data.builtAtCommit?.slice(0, 12) ?? "—"} />
+      </div>
+
+      <SearchPanel companyId={companyId} projectId={projectId} />
+
+      <div>
+        <div className="mb-2 text-xs text-muted-foreground">
+          Top 100 communities by size — click to inspect
+        </div>
+        <BubbleChart
+          communities={data.communities}
+          onSelect={setSelectedCommunity}
+          selectedId={selectedCommunity}
+        />
+      </div>
+
+      {selectedCommunity !== null && (
+        <CommunityDetail
+          communityId={selectedCommunity}
+          companyId={companyId}
+          projectId={projectId}
+          onClose={() => setSelectedCommunity(null)}
+        />
+      )}
+    </div>
+  );
+
+  return (
+    <FullscreenWrapper isFullscreen={isFullscreen} onToggle={toggleFullscreen}>
+      {content}
+    </FullscreenWrapper>
   );
 }
 

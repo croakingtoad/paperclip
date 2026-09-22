@@ -1,1 +1,1 @@
-export { GraphPage, SidebarLink } from "./graph-page.js";
+export { GraphPage, GraphifyProjectTab, SidebarLink } from "./graph-page.js";
