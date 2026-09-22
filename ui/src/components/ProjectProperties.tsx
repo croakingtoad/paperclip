@@ -14,13 +14,59 @@ import { queryKeys } from "../lib/queryKeys";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { AlertCircle, Archive, ArchiveRestore, Check, ExternalLink, Loader2, Trash2 } from "lucide-react";
+import { AlertCircle, Archive, ArchiveRestore, Check, ExternalLink, Loader2, Sparkles, Trash2 } from "lucide-react";
 import { ChoosePathButton } from "./PathInstructionsModal";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { DraftInput } from "./agent-config-primitives";
 import { InlineEditor } from "./InlineEditor";
 import { EnvironmentVariablesEditor } from "./environment-variables-editor";
 import { Badge } from "@/components/ui/badge";
+
+const GRAPHIFY_ENV_KEY = "GRAPHIFY_GRAPH_PATH";
+
+function GraphifyEnvSuggestion({
+  projectId,
+  currentEnv,
+  onAdd,
+}: {
+  projectId: string;
+  currentEnv: Record<string, unknown> | null;
+  onAdd: (key: string, value: string) => void;
+}) {
+  const [dismissed, setDismissed] = useState(false);
+  const alreadySet = Boolean(currentEnv && GRAPHIFY_ENV_KEY in currentEnv);
+  const { data } = useQuery({
+    queryKey: ["project-graphify-detect", projectId],
+    queryFn: () => projectsApi.detectGraphify(projectId),
+    staleTime: 60_000,
+    enabled: !alreadySet && !dismissed,
+  });
+
+  if (dismissed || alreadySet || !data?.detected || !data.path) return null;
+
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm dark:bg-emerald-500/15">
+      <Sparkles className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+      <span className="min-w-0 flex-1 text-emerald-950 dark:text-emerald-100">
+        Graphify dataset detected. Add <code className="rounded bg-emerald-500/20 px-1 font-mono text-xs">{GRAPHIFY_ENV_KEY}</code> so agents use it for codebase queries?
+      </span>
+      <button
+        type="button"
+        onClick={() => onAdd(GRAPHIFY_ENV_KEY, data.path!)}
+        className="inline-flex h-7 items-center gap-1 rounded-md bg-emerald-600 px-2.5 text-xs font-medium text-white transition-colors hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600"
+      >
+        Add
+      </button>
+      <button
+        type="button"
+        onClick={() => setDismissed(true)}
+        className="text-xs text-emerald-700/70 hover:text-emerald-700 dark:text-emerald-300/70 dark:hover:text-emerald-300"
+      >
+        Dismiss
+      </button>
+    </div>
+  );
+}
 
 interface ProjectPropertiesProps {
   project: Project;
@@ -456,6 +502,14 @@ export function ProjectProperties({ project, repositories, onUpdate, onFieldUpda
           valueClassName="space-y-2"
         >
           <div className="space-y-2">
+            <GraphifyEnvSuggestion
+              projectId={project.id}
+              currentEnv={project.env}
+              onAdd={(key, value) => {
+                const next = { ...(project.env ?? {}), [key]: { type: "plain" as const, value } };
+                commitField("env", { env: next });
+              }}
+            />
             <EnvironmentVariablesEditor
               footerHint={null}
               value={project.env ?? {}}
@@ -467,7 +521,6 @@ export function ProjectProperties({ project, repositories, onUpdate, onFieldUpda
               }}
               onChange={(env) => commitField("env", { env: env ?? null })}
             />
-
           </div>
         </PropertyRow>
         <PropertyRow label={<FieldLabel label="Updated" state="idle" />}>
