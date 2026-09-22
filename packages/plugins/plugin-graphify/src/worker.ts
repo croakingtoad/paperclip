@@ -9,7 +9,6 @@ import {
   graphifyPath,
   graphifyExplain,
   graphifyBuild,
-  graphifyTree,
 } from "./graphify-cli.js";
 
 interface GraphNode {
@@ -253,11 +252,12 @@ const plugin = definePlugin({
         { id: "communities", name: "Communities", generated: true },
       ];
       for (const file of Object.keys(KNOWN_HTML_NAMES)) {
+        if (!htmlFiles.has(file)) continue;
         views.push({
           id: file,
           name: KNOWN_HTML_NAMES[file],
           file,
-          generated: htmlFiles.has(file),
+          generated: true,
         });
         htmlFiles.delete(file);
       }
@@ -272,10 +272,6 @@ const plugin = definePlugin({
       return { views };
     });
 
-    const AUTO_GENERATE: Record<string, (dir: string) => Promise<string>> = {
-      "GRAPH_TREE.html": graphifyTree,
-    };
-
     ctx.data.register("graph-html-view", async (params) => {
       const companyId = readString(params.companyId);
       const projectId = readString(params.projectId) || null;
@@ -286,13 +282,7 @@ const plugin = definePlugin({
       }
       const graphDir = await resolveGraphPathForProject(ctx, companyId, projectId);
       const filePath = join(graphDir, viewFile);
-      try {
-        await stat(filePath);
-      } catch {
-        const gen = AUTO_GENERATE[viewFile];
-        if (!gen) throw new Error(`${viewFile} not found`);
-        await gen(graphDir);
-      }
+      await stat(filePath);
       return { html: await readFile(filePath, "utf8") };
     });
 

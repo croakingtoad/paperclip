@@ -170,12 +170,10 @@ function HtmlIframeView({
   companyId,
   projectId,
   viewFile,
-  generated = true,
 }: {
   companyId: string;
   projectId?: string | null;
   viewFile: string;
-  generated?: boolean;
 }) {
   const { data, loading, error } = usePluginData<{ html: string }>(
     "graph-html-view",
@@ -199,7 +197,7 @@ function HtmlIframeView({
     return (
       <div className="flex items-center justify-center py-16">
         <div className="text-sm text-muted-foreground">
-          {generated ? "Loading visualization…" : "Generating visualization — this may take a moment…"}
+          Loading visualization…
         </div>
       </div>
     );
@@ -216,7 +214,8 @@ function HtmlIframeView({
   return (
     <iframe
       src={blobUrl}
-      className="h-[600px] w-full rounded-md border border-border bg-white"
+      className="w-full rounded-md border border-border bg-white"
+      style={{ height: "calc(100vh - 16rem)", minHeight: "500px" }}
       sandbox="allow-scripts"
       title={viewFile}
     />
@@ -380,7 +379,6 @@ function GraphViewContent({
             companyId={companyId}
             projectId={projectId}
             viewFile={view.file}
-            generated={view.generated}
           />
         ) : null;
       })()}
