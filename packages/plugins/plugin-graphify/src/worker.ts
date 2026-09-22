@@ -1,6 +1,7 @@
 import { definePlugin, runWorker } from "@paperclipai/plugin-sdk";
 import type { PluginContext, ToolRunContext, ToolResult } from "@paperclipai/plugin-sdk";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, stat, readdir } from "node:fs/promises";
+import { watch, type FSWatcher } from "node:fs";
 import { join, dirname } from "node:path";
 import { GRAPHIFY_FOLDER_KEY, GRAPHIFY_SKILL_KEY } from "./manifest.js";
 import {
@@ -105,9 +106,42 @@ async function resolveGraphPathForProject(
   );
 }
 
-async function loadGraph(graphDir: string): Promise<GraphData> {
-  const raw = await readFile(join(graphDir, "graph.json"), "utf8");
-  return JSON.parse(raw) as GraphData;
+interface GraphCacheEntry {
+  data: GraphData;
+  mtimeMs: number;
+  watcher: FSWatcher | null;
+}
+
+const graphCache = new Map<string, GraphCacheEntry>();
+
+async function loadGraphCached(graphDir: string): Promise<GraphData> {
+  const filePath = join(graphDir, "graph.json");
+  const s = await stat(filePath);
+  const entry = graphCache.get(filePath);
+
+  if (entry && entry.mtimeMs === s.mtimeMs) return entry.data;
+
+  entry?.watcher?.close();
+
+  const raw = await readFile(filePath, "utf8");
+  const data = JSON.parse(raw) as GraphData;
+
+  let watcher: FSWatcher | null = null;
+  try {
+    watcher = watch(filePath, () => {
+      const cached = graphCache.get(filePath);
+      if (cached) {
+        cached.watcher?.close();
+        graphCache.delete(filePath);
+      }
+    });
+    watcher.unref();
+  } catch {
+    // ponytail: fs.watch fails on some FS types; stat-based mtime check is the fallback
+  }
+
+  graphCache.set(filePath, { data, mtimeMs: s.mtimeMs, watcher });
+  return data;
 }
 
 function buildOverview(graph: GraphData): GraphOverview {
@@ -176,7 +210,7 @@ const plugin = definePlugin({
       const projectId = readString(params.projectId) || null;
       if (!companyId) throw new Error("companyId required");
       const graphDir = await resolveGraphPathForProject(ctx, companyId, projectId);
-      const graph = await loadGraph(graphDir);
+      const graph = await loadGraphCached(graphDir);
       return buildOverview(graph);
     });
 
@@ -187,7 +221,7 @@ const plugin = definePlugin({
       if (!companyId) throw new Error("companyId required");
       if (!Number.isFinite(communityId)) throw new Error("communityId required");
       const graphDir = await resolveGraphPathForProject(ctx, companyId, projectId);
-      const graph = await loadGraph(graphDir);
+      const graph = await loadGraphCached(graphDir);
       return communityNodes(graph, communityId);
     });
 
@@ -198,8 +232,45 @@ const plugin = definePlugin({
       const limit = Math.min(Number(params.limit) || 50, 200);
       if (!companyId || !query) throw new Error("companyId and query required");
       const graphDir = await resolveGraphPathForProject(ctx, companyId, projectId);
-      const graph = await loadGraph(graphDir);
+      const graph = await loadGraphCached(graphDir);
       return { results: searchNodes(graph, query, limit) };
+    });
+
+    const KNOWN_HTML_NAMES: Record<string, string> = {
+      "graph.html": "Force Graph",
+      "GRAPH_TREE.html": "Tree View",
+    };
+
+    ctx.data.register("graph-available-views", async (params) => {
+      const companyId = readString(params.companyId);
+      const projectId = readString(params.projectId) || null;
+      if (!companyId) throw new Error("companyId required");
+      const graphDir = await resolveGraphPathForProject(ctx, companyId, projectId);
+      const entries = await readdir(graphDir);
+      const htmlFiles = entries.filter((e) => e.endsWith(".html")).sort();
+      const views: Array<{ id: string; name: string; file?: string }> = [
+        { id: "communities", name: "Communities" },
+      ];
+      for (const file of htmlFiles) {
+        views.push({
+          id: file,
+          name: KNOWN_HTML_NAMES[file] ?? file.replace(/\.html$/, "").replace(/[_-]/g, " "),
+          file,
+        });
+      }
+      return { views };
+    });
+
+    ctx.data.register("graph-html-view", async (params) => {
+      const companyId = readString(params.companyId);
+      const projectId = readString(params.projectId) || null;
+      const viewFile = readString(params.viewFile);
+      if (!companyId || !viewFile) throw new Error("companyId and viewFile required");
+      if (!viewFile.endsWith(".html") || /[/\\]|\.\./.test(viewFile)) {
+        throw new Error("invalid view file");
+      }
+      const graphDir = await resolveGraphPathForProject(ctx, companyId, projectId);
+      return { html: await readFile(join(graphDir, viewFile), "utf8") };
     });
 
     // -- Managed skill reconciliation --
