@@ -5,10 +5,14 @@ export const PLUGIN_ID = "paperclipai.plugin-graphify";
 export const GRAPHIFY_FOLDER_KEY = "graphify-data";
 export const GRAPHIFY_SKILL_KEY = "graphify";
 
+const { version } = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+);
+
 const manifest: PaperclipPluginManifestV1 = {
   id: PLUGIN_ID,
   apiVersion: 1,
-  version: "0.1.0",
+  version,
   displayName: "Graphify",
   description:
     "Knowledge graph plugin — wraps Graphify CLI for agents and displays an interactive graph visualization per project.",
