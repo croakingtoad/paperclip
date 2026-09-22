@@ -16,7 +16,7 @@ Or pin a version:
 paperclipai plugin install @paperclipai/plugin-graphify@0.6.0
 ```
 
-Pre-built releases are available on the [Releases page](https://github.com/paperclipai/paperclip/releases?q=plugin-graphify).
+Pre-built releases are available on the [Releases page](https://github.com/croakingtoad/paperclip/releases?q=plugin-graphify).
 
 ## Install Graphify (prerequisite)
 
