@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { and, eq, sql } from "drizzle-orm";
 import { activityLog } from "@paperclipai/db";
 import { projectToolContext } from "../services/project-tool-context.js";
@@ -770,6 +772,24 @@ export function projectRoutes(db: Db) {
     });
 
     res.json(workspace);
+  });
+
+  router.get("/projects/:id/graphify-detect", async (req, res) => {
+    const id = req.params.id as string;
+    const project = await getAccessibleResource(req, res, svc.getById(id), "Project not found");
+    if (!project) return;
+    const effectiveFolder = project.codebase?.effectiveLocalFolder;
+    if (!effectiveFolder) {
+      res.json({ detected: false, path: null, reason: "no_workspace" });
+      return;
+    }
+    const graphPath = path.join(effectiveFolder, "graphify-out", "graph.json");
+    const stat = await fs.stat(graphPath).catch(() => null);
+    if (stat?.isFile()) {
+      res.json({ detected: true, path: graphPath });
+    } else {
+      res.json({ detected: false, path: null, reason: "not_found" });
+    }
   });
 
   router.delete("/projects/:id", async (req, res) => {
