@@ -1,0 +1,138 @@
+import type { PaperclipPluginManifestV1 } from "@paperclipai/plugin-sdk";
+
+export const PLUGIN_ID = "paperclipai.plugin-graphify";
+export const GRAPHIFY_FOLDER_KEY = "graphify-data";
+
+const manifest: PaperclipPluginManifestV1 = {
+  id: PLUGIN_ID,
+  apiVersion: 1,
+  version: "0.1.0",
+  displayName: "Graphify",
+  description:
+    "Knowledge graph plugin — wraps Graphify CLI for agents and displays an interactive graph visualization per project.",
+  author: "Paperclip",
+  categories: ["automation", "ui"],
+  capabilities: [
+    "local.folders",
+    "agent.tools.register",
+    "plugin.state.read",
+    "plugin.state.write",
+    "projects.read",
+    "project.workspaces.read",
+    "ui.sidebar.register",
+    "ui.page.register",
+  ],
+  entrypoints: {
+    worker: "./dist/worker.js",
+    ui: "./dist/ui",
+  },
+  localFolders: [
+    {
+      folderKey: GRAPHIFY_FOLDER_KEY,
+      displayName: "Graphify output",
+      description:
+        "Company-scoped local folder containing graphify-out/ output (graph.json, GRAPH_REPORT.md, index.html).",
+      access: "read",
+      requiredFiles: ["graph.json"],
+    },
+  ],
+  tools: [
+    {
+      name: "graphify_query",
+      displayName: "Query Graph",
+      description:
+        "Natural-language query against the Graphify knowledge graph. Returns relevant nodes, edges, and structural context. Use --dfs for depth-first path tracing, --budget to cap tokens.",
+      parametersSchema: {
+        type: "object",
+        properties: {
+          companyId: { type: "string" },
+          query: { type: "string", description: "Natural language query" },
+          dfs: {
+            type: "boolean",
+            description: "Use depth-first search tracing",
+          },
+          budget: {
+            type: "number",
+            description: "Max tokens to return",
+          },
+        },
+        required: ["companyId", "query"],
+      },
+    },
+    {
+      name: "graphify_path",
+      displayName: "Find Path",
+      description:
+        "Find the exact path between two nodes in the knowledge graph.",
+      parametersSchema: {
+        type: "object",
+        properties: {
+          companyId: { type: "string" },
+          source: { type: "string", description: "Source node label or ID" },
+          target: { type: "string", description: "Target node label or ID" },
+        },
+        required: ["companyId", "source", "target"],
+      },
+    },
+    {
+      name: "graphify_explain",
+      displayName: "Explain Node",
+      description:
+        "Return everything the graph knows about a specific node — its edges, community, and context.",
+      parametersSchema: {
+        type: "object",
+        properties: {
+          companyId: { type: "string" },
+          node: { type: "string", description: "Node label or ID to explain" },
+        },
+        required: ["companyId", "node"],
+      },
+    },
+    {
+      name: "graphify_build",
+      displayName: "Build/Update Graph",
+      description:
+        "Run graphify on the project workspace to build or update the knowledge graph. Use --update for incremental rebuild.",
+      parametersSchema: {
+        type: "object",
+        properties: {
+          companyId: { type: "string" },
+          path: {
+            type: "string",
+            description: "Path to source directory (defaults to workspace root)",
+          },
+          update: {
+            type: "boolean",
+            description: "Incremental update instead of full rebuild",
+          },
+          mode: {
+            type: "string",
+            enum: ["default", "deep"],
+            description: "Extraction mode — deep enables aggressive inferred edges",
+          },
+        },
+        required: ["companyId"],
+      },
+    },
+  ],
+  ui: {
+    slots: [
+      {
+        type: "sidebar",
+        id: "graphify-sidebar",
+        displayName: "Graph",
+        exportName: "SidebarLink",
+        order: 40,
+      },
+      {
+        type: "page",
+        id: "graphify-page",
+        displayName: "Knowledge Graph",
+        exportName: "GraphPage",
+        routePath: "graphify",
+      },
+    ],
+  },
+};
+
+export default manifest;
