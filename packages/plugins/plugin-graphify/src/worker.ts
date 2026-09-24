@@ -11,6 +11,7 @@ import {
   graphifyTree,
   graphifyBuild,
 } from "./graphify-cli.js";
+import { postProcessTreeHtml } from "./tree-postprocess.js";
 
 interface GraphNode {
   id: string;
@@ -294,7 +295,9 @@ const plugin = definePlugin({
         if (!generator) throw new Error(`View file ${viewFile} not found`);
         await generator(graphDir);
       }
-      return { html: await readFile(filePath, "utf8") };
+      let html = await readFile(filePath, "utf8");
+      if (viewFile === "GRAPH_TREE.html") html = postProcessTreeHtml(html);
+      return { html };
     });
 
     // -- Managed skill reconciliation --
