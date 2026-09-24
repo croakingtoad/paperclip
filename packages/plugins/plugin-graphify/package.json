@@ -1,13 +1,12 @@
 {
-  "name": "@paperclipai/plugin-graphify",
+  "name": "@mosquitohawk/paperclipai-graphify-plugin",
   "version": "0.8.0",
   "description": "Graphify knowledge graph plugin — CLI wrapper tools for agents and interactive graph visualization",
   "license": "MIT",
-  "homepage": "https://github.com/paperclipai/paperclip",
+  "homepage": "https://github.com/croakingtoad/paperclip-graphify-plugin",
   "repository": {
     "type": "git",
-    "url": "https://github.com/paperclipai/paperclip",
-    "directory": "packages/plugins/plugin-graphify"
+    "url": "https://github.com/croakingtoad/paperclip-graphify-plugin"
   },
   "type": "module",
   "exports": {
@@ -34,15 +33,14 @@
     "ui": "./dist/ui/"
   },
   "scripts": {
-    "prebuild": "pnpm --filter @paperclipai/plugin-sdk ensure-build-deps",
     "build": "node ./esbuild.config.mjs",
     "clean": "rm -rf dist",
-    "typecheck": "pnpm --filter @paperclipai/plugin-sdk ensure-build-deps && tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {},
   "devDependencies": {
-    "@paperclipai/plugin-sdk": "workspace:*",
+    "@paperclipai/plugin-sdk": "^0.1.0",
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",

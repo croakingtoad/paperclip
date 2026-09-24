@@ -1,4 +1,4 @@
-# @paperclipai/plugin-graphify
+# @mosquitohawk/paperclipai-graphify-plugin
 
 Knowledge graph plugin for [Paperclip](https://github.com/paperclipai/paperclip) — wraps the [Graphify](https://pypi.org/project/graphifyy/) CLI for agents and displays interactive graph visualizations per project.
 
@@ -7,13 +7,13 @@ Knowledge graph plugin for [Paperclip](https://github.com/paperclipai/paperclip)
 > **Prerequisite:** You must install Graphify separately and build your first graph _before_ installing this plugin. The plugin reads graph data that Graphify produces — it does not install Graphify or run the codebase mapping itself. See [Install Graphify](#install-graphify-prerequisite) below.
 
 ```bash
-paperclipai plugin install @paperclipai/plugin-graphify
+paperclipai plugin install @mosquitohawk/paperclipai-graphify-plugin
 ```
 
 Or pin a version:
 
 ```bash
-paperclipai plugin install @paperclipai/plugin-graphify@0.6.0
+paperclipai plugin install @mosquitohawk/paperclipai-graphify-plugin@0.6.0
 ```
 
 Pre-built releases are available on the [Releases page](https://github.com/croakingtoad/paperclip/releases?q=plugin-graphify).
