@@ -8,6 +8,7 @@ import {
   graphifyQuery,
   graphifyPath,
   graphifyExplain,
+  graphifyTree,
   graphifyBuild,
 } from "./graphify-cli.js";
 
@@ -241,6 +242,10 @@ const plugin = definePlugin({
       "GRAPH_TREE.html": "Tree View",
     };
 
+    const AUTO_GENERATE: Record<string, (dir: string) => Promise<string>> = {
+      "GRAPH_TREE.html": graphifyTree,
+    };
+
     ctx.data.register("graph-available-views", async (params) => {
       const companyId = readString(params.companyId);
       const projectId = readString(params.projectId) || null;
@@ -252,12 +257,12 @@ const plugin = definePlugin({
         { id: "communities", name: "Communities", generated: true },
       ];
       for (const file of Object.keys(KNOWN_HTML_NAMES)) {
-        if (!htmlFiles.has(file)) continue;
+        const exists = htmlFiles.has(file);
         views.push({
           id: file,
           name: KNOWN_HTML_NAMES[file],
           file,
-          generated: true,
+          generated: exists,
         });
         htmlFiles.delete(file);
       }
@@ -282,7 +287,13 @@ const plugin = definePlugin({
       }
       const graphDir = await resolveGraphPathForProject(ctx, companyId, projectId);
       const filePath = join(graphDir, viewFile);
-      await stat(filePath);
+      try {
+        await stat(filePath);
+      } catch {
+        const generator = AUTO_GENERATE[viewFile];
+        if (!generator) throw new Error(`View file ${viewFile} not found`);
+        await generator(graphDir);
+      }
       return { html: await readFile(filePath, "utf8") };
     });
 

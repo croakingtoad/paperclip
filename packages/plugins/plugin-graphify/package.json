@@ -1,6 +1,6 @@
 {
   "name": "@paperclipai/plugin-graphify",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Graphify knowledge graph plugin — CLI wrapper tools for agents and interactive graph visualization",
   "license": "MIT",
   "homepage": "https://github.com/paperclipai/paperclip",

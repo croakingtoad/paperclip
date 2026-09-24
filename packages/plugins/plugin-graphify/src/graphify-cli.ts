@@ -65,7 +65,10 @@ export async function graphifyExplain(
 }
 
 export async function graphifyTree(graphDir: string): Promise<string> {
-  const result = await run(["tree"], graphDir);
+  const result = await run(
+    ["tree", "--graph", "graph.json", "--output", "GRAPH_TREE.html"],
+    graphDir,
+  );
   if (result.exitCode !== 0) throw new Error(result.stderr || "graphify tree failed");
   return result.stdout;
 }
