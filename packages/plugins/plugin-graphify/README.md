@@ -86,15 +86,23 @@ The plugin adds interactive visualizations to the Paperclip UI:
 - **Community explorer** — click any community bubble to inspect its nodes, edges, and source files.
 - **Node search** — search nodes by label, ID, or source file path.
 
-<!-- TODO: Add screenshots showing:
-  - Knowledge Graph sidebar page with community bubble chart
-  - Project Graphify tab with graph stats
-  - Force-directed graph (graph.html) embedded view
-  - Tree view (GRAPH_TREE.html) embedded view
-  - Community explorer drill-down
-  - Node search results
-  - Auto-detect banner offering to set GRAPHIFY_GRAPH_PATH
--->
+#### Communities
+
+Interactive bubble chart of the top communities by size, with search and click-to-drill-down.
+
+![Communities view](docs/screenshots/communities-view.png)
+
+#### Force Graph
+
+Embedded vis-network force-directed layout with community sidebar and node inspector.
+
+![Force Graph view](docs/screenshots/force-graph-view.png)
+
+#### Tree View
+
+Collapsible D3 tree showing the project's file and symbol hierarchy.
+
+![Tree view](docs/screenshots/tree-view.png)
 
 ## Configuration
 
