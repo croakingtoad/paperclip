@@ -3912,3 +3912,90 @@ describe("subtractPersistedOverlay", () => {
     });
   });
 });
+
+describe("AgentConfigForm role field", () => {
+  let roots: Root[] = [];
+
+  beforeEach(() => {
+    mockAgentsApi.adapterModels.mockResolvedValue([]);
+    mockAgentsApi.detectModel.mockResolvedValue(null);
+    mockAgentsApi.list.mockResolvedValue([]);
+    mockAgentsApi.testEnvironment.mockResolvedValue({
+      adapterType: "codex_local",
+      status: "pass",
+      checks: [],
+      testedAt: new Date(0).toISOString(),
+    });
+    mockInstanceSettingsApi.get.mockResolvedValue({ defaultEnvironmentId: null });
+    mockInstanceSettingsApi.getExperimental.mockResolvedValue({ enableEnvironments: true });
+    mockInstanceSettingsApi.getGeneral.mockResolvedValue({ executionMode: "any" });
+    mockEnvironmentsApi.capabilities.mockResolvedValue(SANDBOX_CAPABILITIES);
+    mockSecretsApi.list.mockResolvedValue([]);
+    mockSecretsApi.listProposals.mockResolvedValue([]);
+    mockAgentsApi.getActiveAdapterAuthLoginSession.mockImplementation(noActiveSession);
+    mockAgentsApi.getActiveClaudeSetupTokenLoginSession.mockImplementation(noActiveSession);
+  });
+
+  afterEach(async () => {
+    for (const root of roots) {
+      await act(async () => {
+        root.unmount();
+      });
+    }
+    roots = [];
+    document.body.innerHTML = "";
+    vi.clearAllMocks();
+  });
+
+  it("renders the role dropdown with all available role options", async () => {
+    const result = await renderForm([
+      makeEnvironment({ id: "local-1", name: "Local", driver: "local" }),
+    ]);
+    roots.push(result.root);
+
+    const roleSelect = result.container.querySelector("select");
+    expect(roleSelect).toBeTruthy();
+    expect(roleSelect?.value).toBe("Engineer");
+
+    const options = Array.from(roleSelect?.querySelectorAll("option") ?? []);
+    const optionValues = options.map((o) => o.value);
+
+    expect(optionValues).toContain("ceo");
+    expect(optionValues).toContain("engineer");
+    expect(optionValues).toContain("designer");
+    expect(optionValues).toContain("pm");
+  });
+
+  it("updates the agent role when a different role is selected", async () => {
+    const result = await renderForm([
+      makeEnvironment({ id: "local-1", name: "Local", driver: "local" }),
+    ]);
+    roots.push(result.root);
+
+    const roleSelect = result.container.querySelector("select") as HTMLSelectElement;
+    expect(roleSelect).toBeTruthy();
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+      setter?.call(roleSelect, "cto");
+      roleSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await flushReact();
+
+    const saveButton = Array.from(result.container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Save",
+    );
+    expect(saveButton).toBeTruthy();
+
+    await act(async () => {
+      saveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(result.onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: "cto",
+      }),
+    );
+  });
+});
