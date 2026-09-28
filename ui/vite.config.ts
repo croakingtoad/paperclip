@@ -7,7 +7,7 @@ import { createApiProxy } from "./src/lib/vite-api-proxy";
 import { serviceWorkerBuildIdPlugin } from "./src/lib/vite-sw-build-id";
 import { readBrowserBuildCommit } from "./src/lib/vite-build-commit";
 
-const apiProxy = createApiProxy();
+const apiProxy = createApiProxy(process.env.PAPERCLIP_API_URL ?? "http://localhost:3100");
 
 export default defineConfig(({ mode }) => ({
   define: {
@@ -37,6 +37,8 @@ export default defineConfig(({ mode }) => ({
   },
   server: {
     port: 5173,
+    host: "0.0.0.0",
+    allowedHosts: true,
     watch: createUiDevWatchOptions(process.cwd()),
     proxy: apiProxy,
   },

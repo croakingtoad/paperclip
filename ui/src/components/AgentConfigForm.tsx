@@ -70,6 +70,7 @@ import {
   DraftNumberInput,
   help,
   adapterLabels,
+  roleLabels,
 } from "./agent-config-primitives";
 import { defaultCreateValues } from "./agent-config-defaults";
 import { getUIAdapter } from "../adapters";
@@ -1461,6 +1462,17 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
                 className={inputClass}
                 placeholder="Agent name"
               />
+            </Field>
+            <Field label="Role" hint={help.role}>
+              <select
+                className={inputClass}
+                value={eff("identity", "role", props.agent.role)}
+                onChange={(e) => mark("identity", "role", e.target.value)}
+              >
+                {Object.entries(roleLabels).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
             </Field>
             <Field label="Title" hint={help.title}>
               <DraftInput
