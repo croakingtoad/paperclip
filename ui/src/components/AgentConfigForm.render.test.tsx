@@ -3955,7 +3955,7 @@ describe("AgentConfigForm role field", () => {
 
     const roleSelect = result.container.querySelector("select");
     expect(roleSelect).toBeTruthy();
-    expect(roleSelect?.value).toBe("Engineer");
+    expect(roleSelect?.value).toBe("engineer");
 
     const options = Array.from(roleSelect?.querySelectorAll("option") ?? []);
     const optionValues = options.map((o) => o.value);
