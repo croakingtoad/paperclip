@@ -4,6 +4,8 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const DEFAULT_DEV_ORIGINS = [
   "http://localhost:3100",
   "http://127.0.0.1:3100",
+  "http://localhost:3101",
+  "http://127.0.0.1:3101",
 ];
 
 function parseOrigin(value: string | undefined) {
