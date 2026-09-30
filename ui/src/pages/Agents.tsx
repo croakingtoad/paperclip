@@ -95,32 +95,18 @@ function matchesFilter(status: string, tab: FilterTab): boolean {
   return true;
 }
 
-function groupAgentsByRole(agents: Agent[]): Map<string, Agent[]> {
-  const grouped = new Map<string, Agent[]>();
-  const roles = Object.keys(AGENT_ROLE_LABELS);
-
-  // First add predefined roles that have agents
-  for (const role of roles) {
-    const agentsWithRole = agents.filter((a) => a.role === role);
-    if (agentsWithRole.length > 0) {
-      grouped.set(role, agentsWithRole);
-    }
-  }
-
-  // Then add custom roles (not in predefined list) that have agents
-  const predefinedRoles = new Set(roles);
-  const customRoles = new Set<string>();
+// Known roles first, in roleLabels order, then any custom role. Custom roles are
+// reachable: the company-package manifest validates role as a free string, and the
+// column is plain text, so an imported agent can hold a value outside AGENT_ROLES.
+// Grouping must never drop one of those from the roster.
+export function groupAgentsByRole(agents: Agent[]): Map<string, Agent[]> {
+  const grouped = new Map<string, Agent[]>(Object.keys(roleLabels).map((role) => [role, []]));
   for (const agent of agents) {
-    if (!predefinedRoles.has(agent.role)) {
-      customRoles.add(agent.role);
-    }
+    const known = grouped.get(agent.role);
+    if (known) known.push(agent);
+    else grouped.set(agent.role, [agent]);
   }
-  for (const customRole of customRoles) {
-    const agentsWithRole = agents.filter((a) => a.role === customRole);
-    grouped.set(customRole, agentsWithRole);
-  }
-
-  return grouped;
+  return new Map([...grouped].filter(([, list]) => list.length > 0));
 }
 
 function filterAgents(agents: Agent[], tab: FilterTab, builtInAgentIds: Set<string>): Agent[] {
