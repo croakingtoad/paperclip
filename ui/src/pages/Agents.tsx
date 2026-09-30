@@ -587,7 +587,7 @@ export function Agents({ initialView = "list" }: { initialView?: AgentsView } = 
           {groupByRole ? (
             Array.from(groupAgentsByRole(filtered)).map(([role, agents]) => (
               <div key={role}>
-                <h3 className="text-sm font-semibold text-muted-foreground my-3">{roleLabels[role]}</h3>
+                <h3 className="text-sm font-semibold text-muted-foreground my-3">{roleLabels[role] ?? role}</h3>
                 <div>
                   {agents.map(renderAgentRow)}
                 </div>
