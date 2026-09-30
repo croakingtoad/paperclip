@@ -95,12 +95,28 @@ function matchesFilter(status: string, tab: FilterTab): boolean {
 function groupAgentsByRole(agents: Agent[]): Map<string, Agent[]> {
   const grouped = new Map<string, Agent[]>();
   const roles = Object.keys(AGENT_ROLE_LABELS);
+
+  // First add predefined roles that have agents
   for (const role of roles) {
     const agentsWithRole = agents.filter((a) => a.role === role);
     if (agentsWithRole.length > 0) {
       grouped.set(role, agentsWithRole);
     }
   }
+
+  // Then add custom roles (not in predefined list) that have agents
+  const predefinedRoles = new Set(roles);
+  const customRoles = new Set<string>();
+  for (const agent of agents) {
+    if (!predefinedRoles.has(agent.role)) {
+      customRoles.add(agent.role);
+    }
+  }
+  for (const customRole of customRoles) {
+    const agentsWithRole = agents.filter((a) => a.role === customRole);
+    grouped.set(customRole, agentsWithRole);
+  }
+
   return grouped;
 }
 
