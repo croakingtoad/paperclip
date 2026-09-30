@@ -5363,12 +5363,7 @@ export function agentRoutes(
     const nextAiBinding = aiConnectionBindingSchema.safeParse(requestedRuntimeConfig?.aiConnection ?? existing.runtimeConfig.aiConnection).data;
     if (nextAiBinding) {
       await assertCanUpdateAgent(req, existing);
-      // Compare raw requested value, not the Zod-parsed one — Zod reconstructs
-      // key order per schema definition, which differs from the DB-stored order
-      // and would cause a spurious "changed" on every save.
-      const changed = requestedRuntimeConfig !== null
-        ? JSON.stringify(requestedRuntimeConfig.aiConnection ?? existing.runtimeConfig.aiConnection) !== JSON.stringify(existing.runtimeConfig.aiConnection)
-        : false;
+      const changed = JSON.stringify(nextAiBinding) !== JSON.stringify(existing.runtimeConfig.aiConnection);
       const aiConfig = (patchData.adapterConfig ?? existing.adapterConfig) as Record<string, unknown>;
       if (!isAiConnectionCompatible(nextAiBinding, requestedAdapterType, aiConfig.model, aiConfig.provider, aiConfig.acpxAgent)) throw unprocessable("Select an AI connection compatible with the new harness and model");
       if (changed) await validateManagedAgentBinding(req, existing.companyId, existing.id, requestedAdapterType, aiConfig, nextAiBinding, (patchData.defaultEnvironmentId !== undefined ? patchData.defaultEnvironmentId : existing.defaultEnvironmentId) as string | null, true);
