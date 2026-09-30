@@ -1465,6 +1465,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
             </Field>
             <Field label="Role" hint={help.role}>
               <select
+                aria-label="Role"
                 className={inputClass}
                 value={eff("identity", "role", props.agent.role)}
                 onChange={(e) => mark("identity", "role", e.target.value)}
@@ -1559,6 +1560,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
             <Field label="Environment override">
               <div className="space-y-2">
                 <select
+                  aria-label="Environment"
                   className={inputClass}
                   value={currentDefaultEnvironmentId}
                   onChange={(event) => {
