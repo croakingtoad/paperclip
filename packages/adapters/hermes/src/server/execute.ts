@@ -237,14 +237,44 @@ const SESSION_ID_REGEX = /^session_id:\s*(\S+)/m;
  * locale. A non-default profile appends " -p <name>" to the command line,
  * which `\S+` stops short of.
  *
- * The *last* match wins. A response that quotes a `hermes --resume` command —
- * hardly exotic, since these agents discuss Hermes — would otherwise shadow
- * the real summary, which Hermes always prints last.
+ * See `pickSessionId` for why the position of a match matters as much as the
+ * pattern that found it.
  */
 const SESSION_ID_REGEX_RESUME_HINT = /^\s*hermes --resume (\S+)/gm;
 
 /** Regex for legacy session output format */
-const SESSION_ID_REGEX_LEGACY = /session[_ ](?:id|saved)[:\s]+([a-zA-Z0-9_-]+)/i;
+const SESSION_ID_REGEX_LEGACY = /session[_ ](?:id|saved)[:\s]+([a-zA-Z0-9_-]+)/gi;
+
+/**
+ * Last match for `re`, with where it was found. `re` must be global.
+ * `matchAll` works off its own copy, so the shared regex keeps `lastIndex` 0.
+ */
+function lastMatch(text: string, re: RegExp): { id: string; at: number } | undefined {
+  let found: { id: string; at: number } | undefined;
+  for (const m of text.matchAll(re)) found = { id: m[1], at: m.index ?? 0 };
+  return found;
+}
+
+/**
+ * Pick the session id out of a non-quiet run, which may carry either spelling:
+ * the resume hint on current Hermes, "session saved:" on older builds.
+ *
+ * Neither pattern gets priority — the *latest* match wins, whichever found it.
+ * Hermes prints its exit summary after the answer, so the last match is the one
+ * the summary wrote and anything earlier is something the agent said. Ranking
+ * the patterns instead would be wrong in one direction or the other: preferring
+ * the hint loses a valid "session saved:" id to a `hermes --resume` line quoted
+ * in a response, and preferring the legacy pattern is worse still, because it is
+ * loose enough to read prose ("session id is unknown" yields "is").
+ */
+function pickSessionId(text: string): string | undefined {
+  return [
+    lastMatch(text, SESSION_ID_REGEX_RESUME_HINT),
+    lastMatch(text, SESSION_ID_REGEX_LEGACY),
+  ]
+    .filter((m) => m !== undefined)
+    .sort((a, b) => b.at - a.at)[0]?.id;
+}
 
 /** Regex to extract token usage from Hermes output. */
 const TOKEN_USAGE_REGEX =
@@ -311,11 +341,7 @@ export function parseHermesOutput(stdout: string, stderr: string): ParsedOutput 
       result.response = cleanResponse(stdout.slice(0, sessionLineIdx));
     }
   } else {
-    // Non-quiet mode: the exit summary's resume hint first, then the older
-    // "session_id:"/"session saved:" spellings for Hermes builds without it.
-    const nonQuietId =
-      [...combined.matchAll(SESSION_ID_REGEX_RESUME_HINT)].pop()?.[1] ??
-      combined.match(SESSION_ID_REGEX_LEGACY)?.[1];
+    const nonQuietId = pickSessionId(combined);
     if (nonQuietId) {
       result.sessionId = nonQuietId;
     }

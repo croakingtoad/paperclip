@@ -28,10 +28,23 @@ test("captures the session id when a profile flag follows it", () => {
 
 // These agents write about Hermes, so a response quoting a resume command is
 // ordinary traffic. Hermes prints the summary last, so the last match is the
-// real one.
+// real one. The decoy has to sit on its own indented line: a command inside
+// backticks mid-sentence never matches the pattern, so it would test nothing.
+const QUOTED_DECOY = "Resume it with:\n  hermes --resume 20250101_000000_decoy\n";
+
 test("prefers the trailing summary over a resume command quoted in the response", () => {
-  const response = "Resume it with `hermes --resume 20250101_000000_decoy`.\n";
-  const parsed = parseHermesOutput(response + EXIT_SUMMARY, "");
+  const parsed = parseHermesOutput(QUOTED_DECOY + EXIT_SUMMARY, "");
+  expect(parsed.sessionId).toBe("20261001_120157_05292c");
+});
+
+// An older Hermes prints "session saved:" and no resume hint. The quoted decoy
+// then has no real hint to lose to, so position — not which pattern matched —
+// has to decide, or the next turn resumes the wrong session.
+test("keeps a trailing legacy id over a resume command quoted above it", () => {
+  const parsed = parseHermesOutput(
+    `${QUOTED_DECOY}\nsession saved: 20261001_120157_05292c\n`,
+    "",
+  );
   expect(parsed.sessionId).toBe("20261001_120157_05292c");
 });
 
