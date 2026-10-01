@@ -41,8 +41,11 @@ test("parses the session id, usage and final response from a real run", () => {
   expect(parsed.response).toBe(
     "It printed exactly:\n\npaperclip-stream-json-fixture\n\n(exit code 0)",
   );
+  // 6 fresh input + 3364 written to the cache. Writing the cache is billed as
+  // input, and UsageSummary has no field of its own for it, so it is counted
+  // here the way claude-local counts cacheCreationInputTokens.
   expect(parsed.usage).toEqual({
-    inputTokens: 6,
+    inputTokens: 6 + 3364,
     outputTokens: 92,
     cachedInputTokens: 36179,
   });
@@ -83,6 +86,49 @@ test("marks a failed tool so the card renders as an error", () => {
   ]);
 
   expect(shown.trim()).toBe(`┊ terminal {"command":"false"} [error]  0.0s`);
+});
+
+// A delta almost never ends on a newline, and parse-stdout.ts only reads a
+// line as a tool card when `┊` opens it. Without a break the card would be
+// glued to the answer and shown as raw text.
+// https://github.com/paperclipai/paperclip/pull/14860#discussion_r4157187829
+test("opens a new line for a tool card that follows an unfinished answer", () => {
+  const { shown } = run([
+    `{"type": "text", "text": "Let me check that"}\n`,
+    `{"type": "tool_use", "name": "terminal", "input": {"command": "ls"}}\n`,
+    `{"type": "tool_result", "name": "terminal", "output": "a", "duration_ms": 30}\n`,
+  ]);
+
+  expect(shown).toBe(`Let me check that\n  ┊ terminal {"command":"ls"}  0.0s\n`);
+  // The card must be the whole line for the UI to read it as one.
+  expect(shown.split("\n")[1].trimStart().startsWith("┊")).toBe(true);
+});
+
+test("does not add a blank line when the answer already ended one", () => {
+  const { shown } = run([
+    `{"type": "text", "text": "Checking.\\n"}\n`,
+    `{"type": "tool_use", "name": "terminal", "input": {"command": "ls"}}\n`,
+    `{"type": "tool_result", "name": "terminal", "output": "a", "duration_ms": 30}\n`,
+  ]);
+
+  expect(shown).toBe(`Checking.\n  ┊ terminal {"command":"ls"}  0.0s\n`);
+});
+
+// Hermes sends tool_call_id only when the provider supplies one, so two live
+// calls to the same tool can share a key. The first start must still pair with
+// the first completion.
+// https://github.com/paperclipai/paperclip/pull/14860#discussion_r4157187835
+test("keeps each input with its own call when two of the same tool overlap", () => {
+  const { shown } = run([
+    `{"type": "tool_use", "name": "terminal", "input": {"command": "first"}}\n`,
+    `{"type": "tool_use", "name": "terminal", "input": {"command": "second"}}\n`,
+    `{"type": "tool_result", "name": "terminal", "output": "", "duration_ms": 10}\n`,
+    `{"type": "tool_result", "name": "terminal", "output": "", "duration_ms": 20}\n`,
+  ]);
+
+  const lines = shown.trimEnd().split("\n");
+  expect(lines[0]).toContain(`{"command":"first"}`);
+  expect(lines[1]).toContain(`{"command":"second"}`);
 });
 
 // A pipe splits wherever it likes, so a chunk can hold half an event — the same

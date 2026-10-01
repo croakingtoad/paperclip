@@ -403,9 +403,15 @@ function toolKey(event: Record<string, unknown>): string {
  */
 export function createStreamJsonConsumer(): StreamJsonConsumer {
   const parsed: ParsedOutput = {};
-  const toolInput = new Map<string, string>();
+  // Queued per key, not stored singly: the captured events carry no
+  // `tool_call_id`, so two live calls to the same tool share a key and the
+  // second start would otherwise overwrite the first one's input. Oldest start
+  // pairs with the next completion.
+  const toolInput = new Map<string, string[]>();
   let held = "";
   let sawTextDelta = false;
+  /** Whether the transcript is at a fresh line; a tool card has to start one. */
+  let atLineStart = true;
 
   const render = (event: Record<string, unknown>): string => {
     switch (event.type) {
@@ -427,23 +433,27 @@ export function createStreamJsonConsumer(): StreamJsonConsumer {
         // that knows the outcome. parse-stdout.ts drops text-mode start lines
         // for the same reason.
         if (event.input !== undefined) {
-          toolInput.set(
-            toolKey(event),
-            JSON.stringify(event.input).slice(0, MAX_TOOL_DETAIL_CHARS),
-          );
+          const key = toolKey(event);
+          const queued = toolInput.get(key) ?? [];
+          queued.push(JSON.stringify(event.input).slice(0, MAX_TOOL_DETAIL_CHARS));
+          toolInput.set(key, queued);
         }
         return "";
 
       case "tool_result": {
         const key = toolKey(event);
-        const detail = toolInput.get(key) ?? "";
-        toolInput.delete(key);
+        const queued = toolInput.get(key);
+        const detail = queued?.shift() ?? "";
+        if (queued && queued.length === 0) toolInput.delete(key);
         const name = typeof event.name === "string" && event.name ? event.name : "tool";
         const seconds = (eventNumber(event.duration_ms) / 1000).toFixed(1);
         // `[error]` goes before the duration because that is where
         // parseToolCompletionLine looks for it.
         const failed = event.is_error === true ? " [error]" : "";
-        return `  ${TOOL_OUTPUT_PREFIX} ${name} ${detail}${failed}  ${seconds}s\n`;
+        // A delta rarely ends on a newline, and the card is only read as a card
+        // when `┊` opens the line — so break the line first when one is open.
+        const start = atLineStart ? "" : "\n";
+        return `${start}  ${TOOL_OUTPUT_PREFIX} ${name} ${detail}${failed}  ${seconds}s\n`;
       }
 
       case "result": {
@@ -454,8 +464,12 @@ export function createStreamJsonConsumer(): StreamJsonConsumer {
         const tokens = event.tokens;
         if (tokens && typeof tokens === "object") {
           const counts = tokens as Record<string, unknown>;
+          // UsageSummary has no cache-write field, and writing the cache is
+          // billed as input, so it is counted as input here. claude-local maps
+          // cacheCreationInputTokens the same way (src/server/parse.ts). Leaving
+          // it out would under-report a cold run by most of its real input.
           parsed.usage = {
-            inputTokens: eventNumber(counts.input),
+            inputTokens: eventNumber(counts.input) + eventNumber(counts.cache_write),
             outputTokens: eventNumber(counts.output),
             cachedInputTokens: eventNumber(counts.cache_read),
           };
@@ -481,16 +495,22 @@ export function createStreamJsonConsumer(): StreamJsonConsumer {
     }
   };
 
+  /** Record where the transcript now sits, so the next tool card can open a line. */
+  const emit = (piece: string): string => {
+    if (piece) atLineStart = piece.endsWith("\n");
+    return piece;
+  };
+
   const consumeLine = (raw: string): string => {
     if (!raw.trim()) return "";
     let event: unknown;
     try {
       event = JSON.parse(raw);
     } catch {
-      return raw;
+      return emit(raw);
     }
-    if (!event || typeof event !== "object" || Array.isArray(event)) return raw;
-    return render(event as Record<string, unknown>);
+    if (!event || typeof event !== "object" || Array.isArray(event)) return emit(raw);
+    return emit(render(event as Record<string, unknown>));
   };
 
   const consume = (chunk: string): string => {
@@ -729,8 +749,6 @@ export async function execute(
   const useStreamJson = cfgString(config.outputFormat) === "stream-json";
   const args: string[] = ["chat", "-q", prompt];
   if (useQuiet) args.push("-Q");
-  // `--format` is the flag; `stream-json` forces quiet mode on the Hermes side.
-  if (useStreamJson) args.push("--format", "stream-json");
 
   if (model) {
     args.push("-m", model);
@@ -772,6 +790,12 @@ export async function execute(
   if (extraArgs?.length) {
     args.push(...extraArgs);
   }
+
+  // Last, so it wins: argparse keeps the final `--format`, and the parse path
+  // below is already committed to events. A `--format` in extraArgs must not be
+  // able to leave the CLI writing text while this reads it as JSON.
+  // `stream-json` forces quiet mode on the Hermes side.
+  if (useStreamJson) args.push("--format", "stream-json");
 
   // ── Build environment ──────────────────────────────────────────────────
   const userEnv = config.env as Record<string, string> | undefined;

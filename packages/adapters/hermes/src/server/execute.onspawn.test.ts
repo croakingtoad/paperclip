@@ -285,7 +285,8 @@ describe("hermes-local adapter onSpawn forwarding", () => {
       .toEqual(["--format", "stream-json"]);
 
     expect(result.sessionParams).toEqual({ sessionId: "20261001_120206_9d5174" });
-    expect(result.usage).toEqual({ inputTokens: 4, outputTokens: 3, cachedInputTokens: 0 });
+    // 4 fresh input + 19700 written to the cache, which is billed as input.
+    expect(result.usage).toEqual({ inputTokens: 4 + 19700, outputTokens: 3, cachedInputTokens: 0 });
     expect(result.summary).toBe("4");
     expect(result.errorMessage).toBeUndefined();
 
@@ -296,6 +297,18 @@ describe("hermes-local adapter onSpawn forwarding", () => {
       .join("");
     expect(streamed).toContain("4");
     expect(streamed).not.toContain(`"type"`);
+  });
+
+  // argparse keeps the last --format, and the parse path is already committed
+  // to events, so ours has to come after anything extraArgs contributes.
+  // https://github.com/paperclipai/paperclip/pull/14860#discussion_r4157187841
+  it("wins over a conflicting format in extraArgs", async () => {
+    const { ctx } = makeCtx({ outputFormat: "stream-json", extraArgs: ["--format", "text"] });
+    await execute(ctx as any);
+
+    const args = vi.mocked(serverUtils.runChildProcess).mock.calls.at(-1)![2] as string[];
+    expect(args.lastIndexOf("--format")).toBeGreaterThan(args.indexOf("--format"));
+    expect(args[args.lastIndexOf("--format") + 1]).toBe("stream-json");
   });
 
   it("does not inherit PAPERCLIP_API_KEY without a harness token", async () => {
