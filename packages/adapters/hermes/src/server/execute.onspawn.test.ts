@@ -196,6 +196,23 @@ describe("hermes-local adapter onSpawn forwarding", () => {
     expect(result.errorMessage).toBeUndefined();
   });
 
+  // A quiet run passes -Q, so Hermes prints no echo. Filtering it anyway could
+  // only discard a real answer that opens by quoting the prompt back.
+  // https://github.com/paperclipai/paperclip/pull/14845#discussion_r4156807288
+  it("never filters stdout when quiet mode is on", async () => {
+    const { ctx } = makeCtx({ quiet: true });
+    await execute(ctx as any);
+
+    const call = vi.mocked(serverUtils.runChildProcess).mock.calls.at(-1)!;
+    expect(call[2]).toContain("-Q");
+
+    // Replay the prompt itself back through the stdout path. Quiet mode must
+    // forward it, because here it can only be the agent's own words.
+    const prompt = call[2][call[2].length - 1] as string;
+    await call[3].onLog("stdout", prompt + "\n");
+    expect(vi.mocked(ctx.onLog)).toHaveBeenCalledWith("stdout", prompt + "\n");
+  });
+
   it("does not inherit PAPERCLIP_API_KEY without a harness token", async () => {
     const previousApiKey = process.env.PAPERCLIP_API_KEY;
     process.env.PAPERCLIP_API_KEY = "parent-process-key";

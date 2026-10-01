@@ -239,37 +239,89 @@ const MIN_PROMPT_ECHO_CHARS = 200;
 /** Longest localized "Query:" label we accept in front of the echo. */
 const MAX_PROMPT_ECHO_LABEL_CHARS = 40;
 
+export interface PromptEchoFilter {
+  /** Filter one raw stdout chunk. Returns the text to keep. */
+  (chunk: string): string;
+  /** Release any held partial line. Call once the child has exited. */
+  flush(): string;
+}
+
+/** Quiet runs carry no echo, so the filter would only add risk. */
+export const PASS_THROUGH_ECHO_FILTER: PromptEchoFilter = Object.assign(
+  (chunk: string) => chunk,
+  { flush: () => "" },
+);
+
+/**
+ * Offset of the prompt inside the first echo line, which also carries the
+ * localized label. Returns -1 when this line cannot be the start of the echo.
+ */
+function promptOffsetInFirstLine(line: string, target: string): number {
+  const limit = Math.min(MAX_PROMPT_ECHO_LABEL_CHARS, line.length);
+  for (let offset = 0; offset <= limit; offset++) {
+    const rest = line.slice(offset);
+    if (rest && target.startsWith(rest)) return offset;
+  }
+  return -1;
+}
+
 /**
  * Build a stdout filter that drops the prompt echo and passes everything else
- * through untouched. The echo precedes any agent output, so the filter stops
- * looking once real output arrives. A chunk that only partially matches the
- * prompt is kept, so a split echo leaks rather than swallowing real output.
+ * through untouched.
+ *
+ * Hermes writes the echo as whole lines and ends it with a newline, so the
+ * filter decides one complete line at a time and holds an unterminated tail
+ * until its newline arrives. Deciding on lines rather than on chunks is what
+ * makes it correct for any split: a pipe can break stdout anywhere, including
+ * inside the echo and between the echo and the first line of the answer.
+ *
+ * The filter stops at the first line that does not continue the prompt, and
+ * every exit path re-emits the text it was holding. A failed match therefore
+ * leaks the echo; it never swallows the answer. `flush()` covers the case where
+ * the child exits while a partial line is still held.
  */
-export function createPromptEchoFilter(
-  prompt: string,
-): (chunk: string) => string {
+export function createPromptEchoFilter(prompt: string): PromptEchoFilter {
   const target = normalizeForEchoMatch(prompt);
   let looking = target.length >= MIN_PROMPT_ECHO_CHARS;
-  let echoed = "";
+  let matched = 0;
+  let held = "";
 
-  return (chunk) => {
+  /** Give up matching and return the held text from `from` onward. */
+  const release = (from: number): string => {
+    looking = false;
+    const rest = held.slice(from);
+    held = "";
+    return rest;
+  };
+
+  const filter = (chunk: string): string => {
     if (!looking) return chunk;
-    const normalized = normalizeForEchoMatch(chunk);
-    if (!normalized) return chunk; // whitespace/markup only — never the echo
-    const candidate = echoed + normalized;
-    const start = echoed ? 0 : candidate.indexOf(target.slice(0, 64));
-    const seen =
-      start >= 0 && start <= MAX_PROMPT_ECHO_LABEL_CHARS
-        ? candidate.slice(start)
-        : "";
-    if (!seen || !target.startsWith(seen)) {
-      looking = false;
-      return chunk;
+    held += chunk;
+
+    let consumed = 0; // raw chars of `held` confirmed to be echo
+    let newline: number;
+    while ((newline = held.indexOf("\n", consumed)) !== -1) {
+      const line = normalizeForEchoMatch(held.slice(consumed, newline + 1));
+      if (line) {
+        // Nothing is confirmed until the first line matches, so a mismatch
+        // there has to give back the whole buffer, blank lines included.
+        const offset = matched === 0 ? promptOffsetInFirstLine(line, target) : 0;
+        const rest = offset < 0 ? line : line.slice(offset);
+        if (offset < 0 || !target.startsWith(rest, matched)) {
+          return release(matched === 0 ? 0 : consumed);
+        }
+        matched += rest.length;
+      }
+      consumed = newline + 1;
+      if (matched >= target.length) return release(consumed);
     }
-    echoed = seen;
-    looking = seen.length < target.length;
+
+    held = held.slice(consumed);
     return "";
   };
+
+  filter.flush = () => (looking ? release(0) : "");
+  return filter;
 }
 
 // ---------------------------------------------------------------------------
@@ -599,7 +651,12 @@ export async function execute(
   // go here rather than after the run: runChildProcess streams every chunk
   // through onLog, so this is the one place that sees both the live UI
   // transcript and (via childStdout) the text the response is parsed from.
-  const stripPromptEcho = createPromptEchoFilter(prompt);
+  // -Q suppresses the echo at the source, so only a non-quiet run needs the
+  // filter. Running it on a quiet run could only ever discard a real answer
+  // that happens to open by quoting the prompt back.
+  const stripPromptEcho = useQuiet
+    ? PASS_THROUGH_ECHO_FILTER
+    : createPromptEchoFilter(prompt);
   let childStdout = "";
   const wrappedOnLog = async (stream: "stdout" | "stderr", chunk: string) => {
     if (stream === "stdout") {
@@ -635,6 +692,14 @@ export async function execute(
     onLog: wrappedOnLog,
     onSpawn: ctx.onSpawn,
   });
+
+  // The child can exit while the filter still holds an unterminated line.
+  // Release it so a partial echo leaks rather than hiding a partial answer.
+  const heldByFilter = stripPromptEcho.flush();
+  if (heldByFilter) {
+    childStdout = appendWithCap(childStdout, heldByFilter);
+    await ctx.onLog("stdout", heldByFilter);
+  }
 
   // ── Parse output ───────────────────────────────────────────────────────
   const parsed = parseHermesOutput(childStdout, result.stderr || "");
