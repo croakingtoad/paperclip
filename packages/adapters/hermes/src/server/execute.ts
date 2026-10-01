@@ -221,6 +221,28 @@ export function buildPrompt(
 /** Regex to extract session ID from Hermes quiet-mode output: "session_id: <id>" */
 const SESSION_ID_REGEX = /^session_id:\s*(\S+)/m;
 
+/**
+ * Non-quiet runs report the session through the exit summary
+ * (hermes_cli/cli_session_mixin.py `_print_exit_summary`), which prints a
+ * resume hint above a labelled block:
+ *
+ *   Resume this session with:
+ *     hermes --resume 20261001_120157_05292c
+ *
+ *   Session:        20261001_120157_05292c
+ *
+ * We read the command, not the label: the label comes from the
+ * `cli.session.exit_label_session` locale string and so is translated
+ * ("Sitzung:" in de, "Session :" in fr), while the command is literal in every
+ * locale. A non-default profile appends " -p <name>" to the command line,
+ * which `\S+` stops short of.
+ *
+ * The *last* match wins. A response that quotes a `hermes --resume` command —
+ * hardly exotic, since these agents discuss Hermes — would otherwise shadow
+ * the real summary, which Hermes always prints last.
+ */
+const SESSION_ID_REGEX_RESUME_HINT = /^\s*hermes --resume (\S+)/gm;
+
 /** Regex for legacy session output format */
 const SESSION_ID_REGEX_LEGACY = /session[_ ](?:id|saved)[:\s]+([a-zA-Z0-9_-]+)/i;
 
@@ -231,7 +253,7 @@ const TOKEN_USAGE_REGEX =
 /** Regex to extract cost from Hermes output. */
 const COST_REGEX = /(?:cost|spent)[:\s]*\$?([\d.]+)/i;
 
-interface ParsedOutput {
+export interface ParsedOutput {
   sessionId?: string;
   response?: string;
   usage?: UsageSummary;
@@ -272,7 +294,7 @@ function cleanResponse(raw: string): string {
 // Output parsing
 // ---------------------------------------------------------------------------
 
-function parseHermesOutput(stdout: string, stderr: string): ParsedOutput {
+export function parseHermesOutput(stdout: string, stderr: string): ParsedOutput {
   const combined = stdout + "\n" + stderr;
   const result: ParsedOutput = {};
 
@@ -289,10 +311,13 @@ function parseHermesOutput(stdout: string, stderr: string): ParsedOutput {
       result.response = cleanResponse(stdout.slice(0, sessionLineIdx));
     }
   } else {
-    // Legacy format (non-quiet mode)
-    const legacyMatch = combined.match(SESSION_ID_REGEX_LEGACY);
-    if (legacyMatch?.[1]) {
-      result.sessionId = legacyMatch?.[1] ?? null;
+    // Non-quiet mode: the exit summary's resume hint first, then the older
+    // "session_id:"/"session saved:" spellings for Hermes builds without it.
+    const nonQuietId =
+      [...combined.matchAll(SESSION_ID_REGEX_RESUME_HINT)].pop()?.[1] ??
+      combined.match(SESSION_ID_REGEX_LEGACY)?.[1];
+    if (nonQuietId) {
+      result.sessionId = nonQuietId;
     }
     // In non-quiet mode, extract clean response from stdout by
     // filtering out tool lines, system messages, and noise
