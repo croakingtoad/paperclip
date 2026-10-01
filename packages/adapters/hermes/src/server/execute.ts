@@ -16,6 +16,7 @@
  *   --checkpoints      filesystem checkpoints
  *   --yolo             bypass dangerous-command approval prompts (agents have no TTY)
  *   --source           session source tag for filtering
+ *   --format           text (default) or stream-json (JSONL events, implies quiet)
  */
 
 import fs from "node:fs/promises";
@@ -48,6 +49,7 @@ import {
   DEFAULT_GRACE_SEC,
   DEFAULT_MODEL,
   VALID_PROVIDERS,
+  TOOL_OUTPUT_PREFIX,
 } from "../shared/constants.js";
 
 import {
@@ -341,12 +343,176 @@ const TOKEN_USAGE_REGEX =
 /** Regex to extract cost from Hermes output. */
 const COST_REGEX = /(?:cost|spent)[:\s]*\$?([\d.]+)/i;
 
-interface ParsedOutput {
+export interface ParsedOutput {
   sessionId?: string;
   response?: string;
   usage?: UsageSummary;
   costUsd?: number;
   errorMessage?: string;
+}
+
+// ---------------------------------------------------------------------------
+// stream-json output
+// ---------------------------------------------------------------------------
+
+/**
+ * `hermes chat -q … --format stream-json` writes one JSON event per stdout
+ * line (hermes_cli/stream_json.py `StreamJsonEmitter`): a `system`/`init`
+ * record, then `text` deltas and `tool_use`/`tool_result` pairs, then one
+ * terminal `result` envelope carrying the session id, the final text and the
+ * token counts. It forces quiet mode, so there is no banner and no prompt echo
+ * — the filter above and the regexes below are both skipped for this branch.
+ *
+ * Opt in with `outputFormat: "stream-json"` in the adapter config. Unset, every
+ * line here is inert and the text path runs exactly as before.
+ */
+
+/** Longest rendered tool input kept in a transcript line. */
+const MAX_TOOL_DETAIL_CHARS = 200;
+
+/** A stdout consumer shaped like the echo filter, plus the state it parsed. */
+export interface StreamJsonConsumer extends PromptEchoFilter {
+  /** Accumulated so far; final once the child has exited. */
+  readonly parsed: ParsedOutput;
+}
+
+function eventNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+/** Parallel same-name calls would collide on a name-only key, so prefer the id. */
+function toolKey(event: Record<string, unknown>): string {
+  const id = event.tool_call_id;
+  if (typeof id === "string" && id) return id;
+  return typeof event.name === "string" && event.name ? event.name : "unknown";
+}
+
+/**
+ * Build a stdout consumer for `--format stream-json`.
+ *
+ * It returns the text to show in the Paperclip transcript — the answer's `text`
+ * deltas verbatim, and one `┊` line per completed tool so the UI renders the
+ * same tool card it already builds for text-mode output (src/ui/parse-stdout.ts).
+ * The structured fields land in `parsed`.
+ *
+ * Events arrive over a pipe, which can split anywhere, so this holds an
+ * unterminated tail until its newline arrives — the same line-at-a-time
+ * discipline the echo filter uses. A line that is not JSON is passed through
+ * untouched rather than dropped: unexpected stdout is worth seeing, and this
+ * must never swallow an answer.
+ */
+export function createStreamJsonConsumer(): StreamJsonConsumer {
+  const parsed: ParsedOutput = {};
+  const toolInput = new Map<string, string>();
+  let held = "";
+  let sawTextDelta = false;
+
+  const render = (event: Record<string, unknown>): string => {
+    switch (event.type) {
+      case "system":
+        // `init` is written before credentials load, so a run that dies early
+        // still reports the session it would have used.
+        if (typeof event.session_id === "string" && event.session_id) {
+          parsed.sessionId = event.session_id;
+        }
+        return "";
+
+      case "text":
+        if (typeof event.text !== "string" || !event.text) return "";
+        sawTextDelta = true;
+        return event.text;
+
+      case "tool_use":
+        // Held, not rendered: the card is emitted from `tool_result`, the event
+        // that knows the outcome. parse-stdout.ts drops text-mode start lines
+        // for the same reason.
+        if (event.input !== undefined) {
+          toolInput.set(
+            toolKey(event),
+            JSON.stringify(event.input).slice(0, MAX_TOOL_DETAIL_CHARS),
+          );
+        }
+        return "";
+
+      case "tool_result": {
+        const key = toolKey(event);
+        const detail = toolInput.get(key) ?? "";
+        toolInput.delete(key);
+        const name = typeof event.name === "string" && event.name ? event.name : "tool";
+        const seconds = (eventNumber(event.duration_ms) / 1000).toFixed(1);
+        // `[error]` goes before the duration because that is where
+        // parseToolCompletionLine looks for it.
+        const failed = event.is_error === true ? " [error]" : "";
+        return `  ${TOOL_OUTPUT_PREFIX} ${name} ${detail}${failed}  ${seconds}s\n`;
+      }
+
+      case "result": {
+        if (typeof event.session_id === "string" && event.session_id) {
+          parsed.sessionId = event.session_id;
+        }
+        if (typeof event.text === "string") parsed.response = event.text;
+        const tokens = event.tokens;
+        if (tokens && typeof tokens === "object") {
+          const counts = tokens as Record<string, unknown>;
+          parsed.usage = {
+            inputTokens: eventNumber(counts.input),
+            outputTokens: eventNumber(counts.output),
+            cachedInputTokens: eventNumber(counts.cache_read),
+          };
+        }
+        // Hermes tracks `estimated_cost_usd` on its run result but does not
+        // copy it into this envelope yet (stream_json.py `emit_result` forwards
+        // only the token counts), so cost stays undefined against today's CLI
+        // and starts working the moment that field ships. Reading the name
+        // Hermes already uses keeps this a forward reference, not a guess.
+        const cost = event.estimated_cost_usd;
+        if (typeof cost === "number" && Number.isFinite(cost)) parsed.costUsd = cost;
+        if (typeof event.error === "string" && event.error) {
+          parsed.errorMessage = event.error;
+        }
+        // A provider that answers without streaming emits no `text` deltas;
+        // without this the transcript would be empty even though the answer is
+        // right here in the envelope.
+        return !sawTextDelta && parsed.response ? `${parsed.response}\n` : "";
+      }
+
+      default:
+        return "";
+    }
+  };
+
+  const consumeLine = (raw: string): string => {
+    if (!raw.trim()) return "";
+    let event: unknown;
+    try {
+      event = JSON.parse(raw);
+    } catch {
+      return raw;
+    }
+    if (!event || typeof event !== "object" || Array.isArray(event)) return raw;
+    return render(event as Record<string, unknown>);
+  };
+
+  const consume = (chunk: string): string => {
+    held += chunk;
+    let out = "";
+    let consumed = 0;
+    let newline: number;
+    while ((newline = held.indexOf("\n", consumed)) !== -1) {
+      out += consumeLine(held.slice(consumed, newline + 1));
+      consumed = newline + 1;
+    }
+    held = held.slice(consumed);
+    return out;
+  };
+
+  consume.flush = (): string => {
+    const rest = held;
+    held = "";
+    return rest ? consumeLine(rest) : "";
+  };
+
+  return Object.assign(consume, { parsed });
 }
 
 // ---------------------------------------------------------------------------
@@ -427,18 +593,25 @@ function parseHermesOutput(stdout: string, stderr: string): ParsedOutput {
     result.costUsd = parseFloat(costMatch[1]);
   }
 
-  // Check for error patterns in stderr
-  if (stderr.trim()) {
-    const errorLines = stderr
-      .split("\n")
-      .filter((line) => /error|exception|traceback|failed/i.test(line))
-      .filter((line) => !/INFO|DEBUG|warn/i.test(line)); // skip log-level noise
-    if (errorLines.length > 0) {
-      result.errorMessage = errorLines.slice(0, 5).join("\n");
-    }
-  }
+  const stderrError = extractStderrError(stderr);
+  if (stderrError) result.errorMessage = stderrError;
 
   return result;
+}
+
+/**
+ * Pull the error lines out of stderr. A Hermes crash reports itself here
+ * whichever output format is in use, so both parse paths need it: stream-json
+ * only learns about a failure that happened before the `result` envelope by
+ * reading stderr.
+ */
+function extractStderrError(stderr: string): string | undefined {
+  if (!stderr.trim()) return undefined;
+  const errorLines = stderr
+    .split("\n")
+    .filter((line) => /error|exception|traceback|failed/i.test(line))
+    .filter((line) => !/INFO|DEBUG|warn/i.test(line)); // skip log-level noise
+  return errorLines.length > 0 ? errorLines.slice(0, 5).join("\n") : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -551,8 +724,13 @@ export async function execute(
   // ── Build command args ─────────────────────────────────────────────────
   // Use -Q (quiet) to get clean output: just response + session_id line
   const useQuiet = cfgBoolean(config.quiet) === true; // default false
+  // Opt-in JSONL events instead of human-formatted text. Unset — the default —
+  // leaves the text path below untouched.
+  const useStreamJson = cfgString(config.outputFormat) === "stream-json";
   const args: string[] = ["chat", "-q", prompt];
   if (useQuiet) args.push("-Q");
+  // `--format` is the flag; `stream-json` forces quiet mode on the Hermes side.
+  if (useStreamJson) args.push("--format", "stream-json");
 
   if (model) {
     args.push("-m", model);
@@ -654,13 +832,19 @@ export async function execute(
   // -Q suppresses the echo at the source, so only a non-quiet run needs the
   // filter. Running it on a quiet run could only ever discard a real answer
   // that happens to open by quoting the prompt back.
-  const stripPromptEcho = useQuiet
+  //
+  // stream-json carries no echo at all, so that branch swaps the filter for the
+  // event consumer instead. Both are `(chunk) => text-to-show` with a `flush()`,
+  // which is why only the one assignment below changes.
+  const streamJson = useStreamJson ? createStreamJsonConsumer() : null;
+  const stripPromptEcho = useQuiet || streamJson
     ? PASS_THROUGH_ECHO_FILTER
     : createPromptEchoFilter(prompt);
+  const filterStdout: PromptEchoFilter = streamJson ?? stripPromptEcho;
   let childStdout = "";
   const wrappedOnLog = async (stream: "stdout" | "stderr", chunk: string) => {
     if (stream === "stdout") {
-      const kept = stripPromptEcho(chunk);
+      const kept = filterStdout(chunk);
       if (!kept) return;
       childStdout = appendWithCap(childStdout, kept);
       return ctx.onLog("stdout", kept);
@@ -695,14 +879,23 @@ export async function execute(
 
   // The child can exit while the filter still holds an unterminated line.
   // Release it so a partial echo leaks rather than hiding a partial answer.
-  const heldByFilter = stripPromptEcho.flush();
+  const heldByFilter = filterStdout.flush();
   if (heldByFilter) {
     childStdout = appendWithCap(childStdout, heldByFilter);
     await ctx.onLog("stdout", heldByFilter);
   }
 
   // ── Parse output ───────────────────────────────────────────────────────
-  const parsed = parseHermesOutput(childStdout, result.stderr || "");
+  // The events already carry everything the text path scrapes out with
+  // regexes, so parseHermesOutput is skipped entirely when they are in use.
+  const parsed = streamJson
+    ? streamJson.parsed
+    : parseHermesOutput(childStdout, result.stderr || "");
+  if (streamJson && !parsed.errorMessage) {
+    // No `result` envelope, or one without an error: a crash that happened
+    // before Hermes could report it still shows up on stderr.
+    parsed.errorMessage = extractStderrError(result.stderr || "");
+  }
 
   await ctx.onLog(
     "stdout",
