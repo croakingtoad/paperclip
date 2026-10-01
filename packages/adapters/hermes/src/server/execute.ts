@@ -28,6 +28,7 @@ import type {
 } from "@paperclipai/adapter-utils";
 
 import {
+  appendWithCap,
   runChildProcess,
   buildPaperclipEnv,
   buildRuntimeToolsEnv,
@@ -209,6 +210,66 @@ export function buildPrompt(
     taskContextMarkdown,
     rendered,
   ]);
+}
+
+// ---------------------------------------------------------------------------
+// Prompt echo suppression
+// ---------------------------------------------------------------------------
+
+/**
+ * Non-quiet `hermes chat -q <prompt>` prints the query straight back to stdout
+ * as "<label> <prompt>" before the agent starts (hermes_cli/cli_single_query.py
+ * `_run_single_query_mode`). A Paperclip prompt is tens of KB of agent
+ * instructions plus the wake payload, and the UI renders unrecognized stdout as
+ * assistant text — so without this the whole instruction bundle lands in the
+ * chat and in the parsed response.
+ *
+ * Hermes prints through Rich, which re-wraps the text (sometimes mid-token) and
+ * eats `[...]` spans as console markup, so the echo is not a substring of what
+ * we sent. Dropping bracket spans and whitespace from both sides makes them
+ * identical again, which keeps this a verified match rather than a guess.
+ */
+function normalizeForEchoMatch(text: string): string {
+  return text.replace(/\[[^\]]*\]/g, "").replace(/[[\]\s]+/g, "");
+}
+
+/** Shorter prompts echo harmlessly; matching them is not worth the risk. */
+const MIN_PROMPT_ECHO_CHARS = 200;
+
+/** Longest localized "Query:" label we accept in front of the echo. */
+const MAX_PROMPT_ECHO_LABEL_CHARS = 40;
+
+/**
+ * Build a stdout filter that drops the prompt echo and passes everything else
+ * through untouched. The echo precedes any agent output, so the filter stops
+ * looking once real output arrives. A chunk that only partially matches the
+ * prompt is kept, so a split echo leaks rather than swallowing real output.
+ */
+export function createPromptEchoFilter(
+  prompt: string,
+): (chunk: string) => string {
+  const target = normalizeForEchoMatch(prompt);
+  let looking = target.length >= MIN_PROMPT_ECHO_CHARS;
+  let echoed = "";
+
+  return (chunk) => {
+    if (!looking) return chunk;
+    const normalized = normalizeForEchoMatch(chunk);
+    if (!normalized) return chunk; // whitespace/markup only — never the echo
+    const candidate = echoed + normalized;
+    const start = echoed ? 0 : candidate.indexOf(target.slice(0, 64));
+    const seen =
+      start >= 0 && start <= MAX_PROMPT_ECHO_LABEL_CHARS
+        ? candidate.slice(start)
+        : "";
+    if (!seen || !target.startsWith(seen)) {
+      looking = false;
+      return chunk;
+    }
+    echoed = seen;
+    looking = seen.length < target.length;
+    return "";
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -533,8 +594,20 @@ export async function execute(
   // ── Execute ────────────────────────────────────────────────────────────
   // Hermes writes non-error noise to stderr (MCP init, INFO logs, etc).
   // Paperclip renders all stderr as red/error in the UI.
-  // Wrap onLog to reclassify benign stderr lines as stdout.
+  // Wrap onLog to reclassify benign stderr lines as stdout, and to drop the
+  // query echo non-quiet mode writes before the agent starts. The echo has to
+  // go here rather than after the run: runChildProcess streams every chunk
+  // through onLog, so this is the one place that sees both the live UI
+  // transcript and (via childStdout) the text the response is parsed from.
+  const stripPromptEcho = createPromptEchoFilter(prompt);
+  let childStdout = "";
   const wrappedOnLog = async (stream: "stdout" | "stderr", chunk: string) => {
+    if (stream === "stdout") {
+      const kept = stripPromptEcho(chunk);
+      if (!kept) return;
+      childStdout = appendWithCap(childStdout, kept);
+      return ctx.onLog("stdout", kept);
+    }
     if (stream === "stderr") {
       const trimmed = chunk.trimEnd();
       // Benign patterns that should NOT appear as errors:
@@ -564,7 +637,7 @@ export async function execute(
   });
 
   // ── Parse output ───────────────────────────────────────────────────────
-  const parsed = parseHermesOutput(result.stdout || "", result.stderr || "");
+  const parsed = parseHermesOutput(childStdout, result.stderr || "");
 
   await ctx.onLog(
     "stdout",
