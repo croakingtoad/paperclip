@@ -4395,7 +4395,7 @@ function splitAgentIdList(value: string): string[] {
     .filter((entry) => entry.length > 0);
 }
 
-function KeysTab({ agentId, companyId }: { agentId: string; companyId?: string }) {
+export function KeysTab({ agentId, companyId }: { agentId: string; companyId?: string }) {
   const queryClient = useQueryClient();
   const { pushToast } = useToastActions();
   const [newKeyName, setNewKeyName] = useState("");

@@ -29,9 +29,7 @@ granularity.
 
 Agent API keys are hard-scoped to one company. If an agent uses its key against
 an endpoint that belongs to a different company, the API returns `403` with
-body `{"error":"Agent key cannot access another company"}`. (`deny_company_boundary`
-is the server-log reason; it does not appear in the response body — do not
-match on it.) Holding two keys in the same process does not grant ambient
+body `{"error":"Agent key cannot access another company"}`. Holding two keys in the same process does not grant ambient
 authority — only the `companyId` embedded in the presented key is checked.
 
 ### The supported path
