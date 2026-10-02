@@ -516,6 +516,8 @@ export {
   upsertIssueDocumentSchema,
   restoreIssueDocumentRevisionSchema,
   upsertIssueWatchdogSchema,
+  transferIssueToCompanySchema,
+  type TransferIssueToCompany,
   type CreateIssue,
   type CreateChildIssue,
   type CreateAcceptedPlanDecomposition,
