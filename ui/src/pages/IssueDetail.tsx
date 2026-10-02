@@ -265,6 +265,10 @@ import {
   TaskTreeControlDialog,
   TaskTreeControlMenuItems,
 } from "../components/TaskTreeControls";
+import {
+  TransferIssueToCompanyDialog,
+  useTransferTargetCompanies,
+} from "../components/TransferIssueToCompanyDialog";
 import { waitForStoppedRuns } from "../lib/wait-for-stopped-runs";
 import { useIssueExternalObjects } from "../hooks/useIssueExternalObjects";
 import { IssueGalleryContext } from "../context/IssueGalleryContext";
@@ -362,6 +366,7 @@ import {
   AlertTriangle,
   Archive,
   ArrowLeft,
+  Building2,
   Check,
   ChevronRight,
   Copy,
@@ -3224,6 +3229,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
   const { pushToast } = useToastActions();
   const { isMobile } = useSidebar();
   const [moreOpen, setMoreOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [mobilePropsOpen, setMobilePropsOpen] = useState(false);
   const [artifactsOpenRequest, setArtifactsOpenRequest] = useState<{
@@ -3355,6 +3361,9 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     value instanceof ApiError && [401, 403, 404].includes(value.status),
   );
   const issue = accessError ? undefined : queriedIssue ?? coreIssueQuery.data ?? conversation?.issue ?? draftIssue;
+  // Empty unless this board user belongs to a second company, which is exactly
+  // when the cross-company handoff is offered.
+  const transferTargetCompanies = useTransferTargetCompanies(issue?.companyId);
   const loadingTitleOwner = issue?.id;
   const handleLoadingTitleEditingChange = useCallback((editing: boolean) => {
     if (!loadingTitleOwner) return;
@@ -7987,6 +7996,18 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                     setMoreOpen(false);
                   }}
                 />
+                {transferTargetCompanies.length > 0 ? (
+                  <button
+                    className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
+                    onClick={() => {
+                      setTransferOpen(true);
+                      setMoreOpen(false);
+                    }}
+                  >
+                    <Building2 className="h-3 w-3" />
+                    Send to another company...
+                  </button>
+                ) : null}
                 <button
                   className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-destructive"
                   onClick={() => {
@@ -8869,6 +8890,14 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
               })
             }
           />
+
+          {issue?.companyId ? (
+            <TransferIssueToCompanyDialog
+              open={transferOpen}
+              onOpenChange={setTransferOpen}
+              issue={issue}
+            />
+          ) : null}
 
           {/* Mobile properties drawer */}
           <Sheet open={mobilePropsOpen} onOpenChange={setMobilePropsOpen}>
