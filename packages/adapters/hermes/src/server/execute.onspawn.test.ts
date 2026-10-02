@@ -260,6 +260,69 @@ describe("hermes-local adapter onSpawn forwarding", () => {
     expect(streamed).toContain("the real answer");
   });
 
+  // ── stream-json, opt-in ────────────────────────────────────────────────
+  // Real stdout from `hermes chat -q "What is 2+2? Answer with just the
+  // number." --format stream-json --source tool --yolo` on Hermes v0.21.5.
+  const STREAM_JSON_RUN = [
+    `{"type": "system", "subtype": "init", "model": "", "session_id": "20261001_120206_9d5174", "timestamp": 1790870526519}`,
+    `{"type": "text", "text": "4", "timestamp": 1790870534345}`,
+    `{"type": "result", "session_id": "20261001_120206_9d5174", "exit_code": 0, "text": "4", "tokens": {"input": 4, "output": 3, "total": 19707, "cache_read": 0, "cache_write": 19700}, "duration_ms": 8971, "timestamp": 1790870535490}`,
+  ].join("\n") + "\n";
+
+  it("leaves the command line alone unless the config opts in", async () => {
+    const { ctx } = makeCtx();
+    await execute(ctx as any);
+
+    const args = vi.mocked(serverUtils.runChildProcess).mock.calls.at(-1)![2] as string[];
+    expect(args).not.toContain("--format");
+    expect(args).not.toContain("stream-json");
+  });
+
+  it("reads session, usage and answer from the events when opted in", async () => {
+    vi.mocked(serverUtils.runChildProcess).mockImplementationOnce(
+      async (_runId: any, _cmd: any, _args: any, opts: any) => {
+        await opts.onLog("stdout", STREAM_JSON_RUN);
+        return {
+          exitCode: 0, signal: null, timedOut: false,
+          stdout: "", stderr: "", pid: null, startedAt: null,
+        };
+      },
+    );
+
+    const { ctx } = makeCtx({ outputFormat: "stream-json" });
+    const result = await execute(ctx as any);
+
+    const args = vi.mocked(serverUtils.runChildProcess).mock.calls.at(-1)![2] as string[];
+    expect(args.slice(args.indexOf("--format"), args.indexOf("--format") + 2))
+      .toEqual(["--format", "stream-json"]);
+
+    expect(result.sessionParams).toEqual({ sessionId: "20261001_120206_9d5174" });
+    // 4 fresh input + 19700 written to the cache, which is billed as input.
+    expect(result.usage).toEqual({ inputTokens: 4 + 19700, outputTokens: 3, cachedInputTokens: 0 });
+    expect(result.summary).toBe("4");
+    expect(result.errorMessage).toBeUndefined();
+
+    // The transcript gets the answer, never the envelope it arrived in.
+    const streamed = (vi.mocked(ctx.onLog).mock.calls as unknown as [string, string][])
+      .filter((c) => c[0] === "stdout")
+      .map((c) => c[1])
+      .join("");
+    expect(streamed).toContain("4");
+    expect(streamed).not.toContain(`"type"`);
+  });
+
+  // argparse keeps the last --format, and the parse path is already committed
+  // to events, so ours has to come after anything extraArgs contributes.
+  // https://github.com/paperclipai/paperclip/pull/14860#discussion_r4157187841
+  it("wins over a conflicting format in extraArgs", async () => {
+    const { ctx } = makeCtx({ outputFormat: "stream-json", extraArgs: ["--format", "text"] });
+    await execute(ctx as any);
+
+    const args = vi.mocked(serverUtils.runChildProcess).mock.calls.at(-1)![2] as string[];
+    expect(args.lastIndexOf("--format")).toBeGreaterThan(args.indexOf("--format"));
+    expect(args[args.lastIndexOf("--format") + 1]).toBe("stream-json");
+  });
+
   it("does not inherit PAPERCLIP_API_KEY without a harness token", async () => {
     const previousApiKey = process.env.PAPERCLIP_API_KEY;
     process.env.PAPERCLIP_API_KEY = "parent-process-key";
