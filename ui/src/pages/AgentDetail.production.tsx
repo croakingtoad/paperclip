@@ -94,6 +94,7 @@ import {
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
+import { RadioCardGroup } from "@/components/ui/radio-card";
 import { RunTranscriptView, type TranscriptMode } from "../components/transcript/RunTranscriptView";
 import { AgentToolsTab } from "./AgentToolsTab";
 import { AgentChannelsPanel } from "../components/chat/AgentChannelsPanel";
@@ -107,6 +108,7 @@ import {
 import {
   isUuidLike,
   type Agent,
+  type AgentApiKeyScope,
   type AgentDetail as AgentDetailRecord,
   type BudgetPolicySummary,
   type HeartbeatRun,
@@ -4371,6 +4373,28 @@ export function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType
 
 /* ---- Keys Tab ---- */
 
+type AgentKeyScopeKind = "standard" | "task_bridge";
+
+const AGENT_KEY_SCOPE_OPTIONS: Array<{ value: AgentKeyScopeKind; title: string; description: string }> = [
+  {
+    value: "standard",
+    title: "Standard",
+    description: "Full agent API access for this agent.",
+  },
+  {
+    value: "task_bridge",
+    title: "Task bridge",
+    description: "Scoped to one parent issue. Parent issue ID is required.",
+  },
+];
+
+function splitAgentIdList(value: string): string[] {
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
 function KeysTab({ agentId, companyId }: { agentId: string; companyId?: string }) {
   const queryClient = useQueryClient();
   const { pushToast } = useToastActions();
@@ -4378,6 +4402,36 @@ function KeysTab({ agentId, companyId }: { agentId: string; companyId?: string }
   const [newToken, setNewToken] = useState<string | null>(null);
   const [tokenVisible, setTokenVisible] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [keyScopeKind, setKeyScopeKind] = useState<AgentKeyScopeKind>("standard");
+  const [bridgeParentIssueId, setBridgeParentIssueId] = useState("");
+  const [bridgeAssigneeIds, setBridgeAssigneeIds] = useState("");
+
+  const isTaskBridgeScope = keyScopeKind === "task_bridge";
+  const bridgeParentIssue = bridgeParentIssueId.trim();
+  const bridgeAssignees = splitAgentIdList(bridgeAssigneeIds);
+  // The server takes UUIDs here and rejects a task_bridge scope with no issue or
+  // project boundary. Check both in the form so a typo reads as a field error
+  // instead of an opaque 400 after the round trip.
+  const bridgeParentIssueError =
+    isTaskBridgeScope && bridgeParentIssue.length > 0 && !isUuidLike(bridgeParentIssue)
+      ? "Enter a valid issue UUID."
+      : null;
+  const bridgeAssigneesError =
+    isTaskBridgeScope && bridgeAssignees.some((id) => !isUuidLike(id))
+      ? "Enter agent UUIDs separated by commas."
+      : null;
+  const canCreateKey =
+    !isTaskBridgeScope ||
+    (bridgeParentIssue.length > 0 && !bridgeParentIssueError && !bridgeAssigneesError);
+
+  function buildKeyScope(): AgentApiKeyScope | undefined {
+    if (!isTaskBridgeScope) return undefined;
+    return {
+      kind: "task_bridge",
+      ...(bridgeParentIssue ? { parentIssueId: bridgeParentIssue } : {}),
+      ...(bridgeAssignees.length > 0 ? { allowedAssigneeAgentIds: bridgeAssignees } : {}),
+    };
+  }
 
   const { data: keys, isLoading } = useQuery({
     queryKey: queryKeys.agents.keys(agentId),
@@ -4385,7 +4439,8 @@ function KeysTab({ agentId, companyId }: { agentId: string; companyId?: string }
   });
 
   const createKey = useMutation({
-    mutationFn: () => agentsApi.createKey(agentId, newKeyName.trim() || "Default", companyId),
+    mutationFn: () =>
+      agentsApi.createKey(agentId, newKeyName.trim() || "Default", companyId, buildKeyScope()),
     onSuccess: (data) => {
       setNewToken(data.token);
       setTokenVisible(true);
@@ -4466,6 +4521,55 @@ function KeysTab({ agentId, companyId }: { agentId: string; companyId?: string }
         <p className="text-xs text-muted-foreground">
           API keys allow this agent to authenticate calls to the Paperclip server.
         </p>
+        <RadioCardGroup
+          ariaLabel="API key scope"
+          className="sm:grid-cols-2"
+          value={keyScopeKind}
+          onValueChange={(value) => setKeyScopeKind(value as AgentKeyScopeKind)}
+          options={AGENT_KEY_SCOPE_OPTIONS}
+        />
+        {isTaskBridgeScope && (
+          <div className="space-y-2">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="block space-y-1">
+                <span className="text-xs text-muted-foreground">Parent issue ID</span>
+                <Input
+                  placeholder="Issue UUID"
+                  value={bridgeParentIssueId}
+                  onChange={(e) => setBridgeParentIssueId(e.target.value)}
+                  className="h-8 text-sm font-mono"
+                  aria-invalid={bridgeParentIssueError ? true : undefined}
+                  aria-describedby={bridgeParentIssueError ? "bridge-parent-issue-error" : undefined}
+                />
+                {bridgeParentIssueError && (
+                  <span id="bridge-parent-issue-error" className="block text-xs text-destructive">
+                    {bridgeParentIssueError}
+                  </span>
+                )}
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs text-muted-foreground">Allowed assignee agent IDs</span>
+                <Input
+                  placeholder="Agent UUIDs, comma separated"
+                  value={bridgeAssigneeIds}
+                  onChange={(e) => setBridgeAssigneeIds(e.target.value)}
+                  className="h-8 text-sm font-mono"
+                  aria-invalid={bridgeAssigneesError ? true : undefined}
+                  aria-describedby={bridgeAssigneesError ? "bridge-assignees-error" : undefined}
+                />
+                {bridgeAssigneesError && (
+                  <span id="bridge-assignees-error" className="block text-xs text-destructive">
+                    {bridgeAssigneesError}
+                  </span>
+                )}
+              </label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Task bridge keys can only create tasks under the specified parent issue. They cannot
+              use company-wide or peer-agent APIs.
+            </p>
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <Input
             placeholder="Key name (e.g. production)"
@@ -4473,13 +4577,14 @@ function KeysTab({ agentId, companyId }: { agentId: string; companyId?: string }
             onChange={(e) => setNewKeyName(e.target.value)}
             className="h-8 text-sm"
             onKeyDown={(e) => {
-              if (e.key === "Enter") createKey.mutate();
+              if (e.key === "Enter" && canCreateKey) createKey.mutate();
             }}
           />
           <Button
             size="sm"
             onClick={() => createKey.mutate()}
-            disabled={createKey.isPending}
+            disabled={createKey.isPending || !canCreateKey}
+            title={canCreateKey ? undefined : "Enter a valid parent issue UUID for a task bridge key"}
           >
             <Plus className="h-3.5 w-3.5 mr-1" />
             Create
