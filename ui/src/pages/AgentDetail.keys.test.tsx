@@ -4,7 +4,8 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { KeysTab } from "./AgentDetail";
+import { KeysTab as KeysTabDev } from "./AgentDetail";
+import { KeysTab as KeysTabProd } from "./AgentDetail.production";
 
 const mockAgentsApi = vi.hoisted(() => ({
   listKeys: vi.fn(),
@@ -47,7 +48,10 @@ function setNativeValue(element: HTMLInputElement, value: string) {
   element.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-describe("KeysTab scope selector", () => {
+describe.each([
+  ["AgentDetail (dev)", KeysTabDev],
+  ["AgentDetail.production", KeysTabProd],
+] as const)("KeysTab scope selector — %s", (_label, KeysTab) => {
   let container: HTMLDivElement;
   let root: Root | null = null;
   let queryClient: QueryClient;
