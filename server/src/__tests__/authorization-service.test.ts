@@ -2329,6 +2329,19 @@ describeEmbeddedPostgres("authorization service", () => {
       reason: "deny_company_boundary",
       explanation: "Agent key cannot access another company.",
     });
+
+    // Third assertion: ambient identity = companyA, presented key still claims companyB.
+    // Without the presented-key guard at authorization.ts:1860, the ambient guard would
+    // pass (strayAgent.companyId A === resource companyId A) and the scope check would
+    // pass (parentIssueId matches), so this would incorrectly allow. This assertion
+    // kills that mutation.
+    const strayAgent = await createAgent(db, companyA.id);
+    const strayActor = { ...actor, agentId: strayAgent.id };
+    await expect(authz.decide({
+      actor: strayActor,
+      action: "tasks:assign",
+      resource: { type: "issue", companyId: companyA.id, parentIssueId: parentIssue.id },
+    })).resolves.toMatchObject({ allowed: false, reason: "deny_company_boundary" });
   });
 
   it("scopes skill-test keys to their own issue only", async () => {
