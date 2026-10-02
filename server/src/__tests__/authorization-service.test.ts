@@ -2293,6 +2293,37 @@ describeEmbeddedPostgres("authorization service", () => {
     });
   });
 
+  it("task_bridge key from company B cannot access company A even when company A key exists in same process", async () => {
+    const companyA = await createCompany(db, "CompanyA");
+    const companyB = await createCompany(db, "CompanyB");
+    const bridgeAgent = await createAgent(db, companyB.id);
+    const parentIssue = await createIssue(db, companyB.id);
+    const actor = {
+      type: "agent" as const,
+      agentId: bridgeAgent.id,
+      companyId: companyB.id,
+      source: "agent_jwt" as const,
+      keyId: randomUUID(),
+      keyScope: {
+        kind: "task_bridge" as const,
+        parentIssueId: parentIssue.id,
+      },
+    };
+    const authz = authorizationService(db);
+
+    await expect(authz.decide({
+      actor,
+      action: "tasks:assign",
+      resource: { type: "issue", companyId: companyB.id, parentIssueId: parentIssue.id },
+    })).resolves.toMatchObject({ allowed: true });
+
+    await expect(authz.decide({
+      actor,
+      action: "tasks:assign",
+      resource: { type: "issue", companyId: companyA.id },
+    })).resolves.toMatchObject({ allowed: false, reason: "deny_company_boundary" });
+  });
+
   it("scopes skill-test keys to their own issue only", async () => {
     const company = await createCompany(db, "SkillTest");
     const skillTestAgent = await createAgent(db, company.id);
