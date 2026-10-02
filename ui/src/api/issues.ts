@@ -1,4 +1,4 @@
-import type { SetIssueTitle } from "@paperclipai/shared";
+import type { SetIssueTitle, TransferIssueToCompany } from "@paperclipai/shared";
 import { ISSUE_SUMMARIES_MAX_IDS } from "@paperclipai/shared";
 import type { IssueSummary } from "@paperclipai/shared";
 import type { ExecutionReconciliation } from "@paperclipai/shared";
@@ -294,6 +294,11 @@ export const issuesApi = {
     api.put<{ id: string; title: string; titleNeedsGeneration: boolean; changed: boolean }>(`/issues/${id}/title`, data),
   create: (companyId: string, data: Record<string, unknown>) =>
     api.post<Issue>(`/companies/${companyId}/issues`, data),
+  transferToCompany: (id: string, data: TransferIssueToCompany) =>
+    api.post<{ id: string; identifier: string | null }>(
+      `/issues/${id}/transfer-to-company`,
+      data,
+    ),
   update: (id: string, data: Record<string, unknown>) => {
     const response = api.patch<IssueUpdateResponse>(`/issues/${id}`, data);
     return typeof data.comment === "string"

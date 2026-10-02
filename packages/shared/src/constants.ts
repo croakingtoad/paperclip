@@ -424,7 +424,10 @@ export function isPluginOperationIssueOriginKind(originKind: string | null | und
   return typeof originKind === "string" && /^plugin:[^:]+:operation(?::|$)/.test(originKind);
 }
 
-export const ISSUE_RELATION_TYPES = ["blocks"] as const;
+// "transfer" is the two-way edge a cross-company handoff leaves behind: the
+// source issue and its copy in the target company each point at the other.
+// Unlike "blocks", the two rows live in different companies.
+export const ISSUE_RELATION_TYPES = ["blocks", "transfer"] as const;
 export type IssueRelationType = (typeof ISSUE_RELATION_TYPES)[number];
 
 export const ISSUE_TREE_CONTROL_MODES = ["pause", "resume", "cancel", "restore"] as const;

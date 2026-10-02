@@ -72,6 +72,7 @@ import {
   // Issue
   createIssueSchema,
   setIssueTitleSchema,
+  transferIssueToCompanySchema,
   updateIssueSchema,
   stalledReviewDecisionSchema,
   createIssueLabelSchema,
@@ -4266,6 +4267,27 @@ registry.registerPath({
   description: "Changes only the title. onlyIfProvisional preserves an explicit title, including concurrent user edits. Agent callers must own the task's active run. Allowed in Ask and Plan modes.",
   request: { params: z.object({ id: z.string() }), body: jsonBody(setIssueTitleSchema) },
   responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden, 404: r.notFound, 409: r.conflict },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/issues/{id}/transfer-to-company",
+  tags: ["issues"],
+  summary: "Hand an issue to another company",
+  description:
+    "Board users only. Copies the title, description and every named document into a new issue in a company the acting user is also an active member of, and records a two-way 'transfer' relation. The source issue is left untouched; assignees, comments and attachments are not copied.",
+  request: {
+    params: z.object({ id: z.string() }),
+    body: jsonBody(transferIssueToCompanySchema),
+  },
+  responses: {
+    201: r.ok(),
+    400: r.badRequest,
+    401: r.unauthorized,
+    403: r.forbidden,
+    404: r.notFound,
+    422: r.unprocessable,
+  },
 });
 
 registry.registerPath({
