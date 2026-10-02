@@ -2394,11 +2394,18 @@ describeEmbeddedPostgres("authorization service", () => {
       resource: { type: "issue", companyId: companyB.id, parentIssueId: parentIssue.id },
     })).resolves.toMatchObject({ allowed: true });
 
+    // The agent-record lookup just below the presented-key check denies with the
+    // same reason, so reason alone passes even with the key check deleted. The
+    // explanation is what pins that the denial came from the presented key.
     await expect(authz.decide({
       actor,
       action: "tasks:assign",
       resource: { type: "issue", companyId: companyA.id },
-    })).resolves.toMatchObject({ allowed: false, reason: "deny_company_boundary" });
+    })).resolves.toMatchObject({
+      allowed: false,
+      reason: "deny_company_boundary",
+      explanation: "Agent key cannot access another company.",
+    });
   });
 
   it("scopes skill-test keys to their own issue only", async () => {
