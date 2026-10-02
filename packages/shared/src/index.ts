@@ -1960,6 +1960,8 @@ export {
   resolveCreateIssueStatusDefault,
   createIssueLabelSchema,
   upsertIssueWatchdogSchema,
+  transferIssueToCompanySchema,
+  type TransferIssueToCompany,
   issueBlockedInboxAttentionSchema,
   issueBlockedInboxIssueRefSchema,
   issueBlockedInboxReasonSchema,

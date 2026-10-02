@@ -826,6 +826,15 @@ export const upsertIssueWatchdogSchema = z
 
 export type UpsertIssueWatchdog = z.infer<typeof upsertIssueWatchdogSchema>;
 
+export const transferIssueToCompanySchema = z
+  .object({
+    targetCompanyId: z.string().guid(),
+    targetProjectId: z.string().guid(),
+  })
+  .strict();
+
+export type TransferIssueToCompany = z.infer<typeof transferIssueToCompanySchema>;
+
 export const createChildIssueSchema = withCreateIssueStatusDefault(
   createIssueBaseSchema
     .omit({

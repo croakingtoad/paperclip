@@ -61,6 +61,7 @@ import {
   pipelineCases,
   pipelineStages,
   pipelines,
+  projects,
   projectWorkspaces,
 } from "@paperclipai/db";
 import {
@@ -92,6 +93,8 @@ import {
   feedbackVoteValueSchema,
   upsertIssueFeedbackVoteSchema,
   upsertIssueWatchdogSchema,
+  transferIssueToCompanySchema,
+  type TransferIssueToCompany,
   linkIssueApprovalSchema,
   issueDocumentKeySchema,
   ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY,
@@ -11510,6 +11513,129 @@ export function issueRoutes(
 
     res.json({ ok: true });
   });
+
+  // Hand an issue to another company the acting board user also belongs to.
+  // Copies title, description and every named document into a fresh issue in
+  // the target company, then records a two-way "transfer" relation so each side
+  // can find the other. The source issue is left exactly as it was: this is a
+  // handoff, not a move.
+  router.post(
+    "/issues/:id/transfer-to-company",
+    validate(transferIssueToCompanySchema),
+    async (req, res) => {
+      // Board users only. An agent key is scoped to one company and must never
+      // be able to push work across a company boundary.
+      assertBoard(req);
+      const source = await getAccessibleResource(
+        req,
+        res,
+        getIssueById(req, req.params.id as string),
+        "Issue not found",
+      );
+      if (!source) return;
+      const { targetCompanyId, targetProjectId } =
+        req.body as TransferIssueToCompany;
+      if (targetCompanyId === source.companyId) {
+        res.status(422).json({
+          error: "Target company must differ from the source company",
+        });
+        return;
+      }
+      // Throws 403 unless the acting user has active, non-viewer membership of
+      // the target company. getAccessibleResource already proved the same for
+      // the source company.
+      assertCompanyAccess(req, targetCompanyId);
+
+      const targetProject = await db
+        .select({ id: projects.id, companyId: projects.companyId })
+        .from(projects)
+        .where(eq(projects.id, targetProjectId))
+        .then((rows) => rows[0] ?? null);
+      if (!targetProject || targetProject.companyId !== targetCompanyId) {
+        res.status(404).json({ error: "Target project not found" });
+        return;
+      }
+
+      const actor = getActorInfo(req);
+      const createdByUserId = actor.actorType === "user" ? actor.actorId : null;
+      const transferred = await svc.create(targetCompanyId, {
+        title: source.title,
+        description: source.description,
+        projectId: targetProjectId,
+        priority: source.priority,
+        createdByUserId,
+        actorRunId: actor.runId,
+        allowDuplicate: true,
+      });
+
+      const sourceLabel = source.identifier ?? source.id;
+      // Named documents only — system documents are server-owned bookkeeping for
+      // the run that produced them and mean nothing on the copy.
+      for (const doc of await documentsSvc.listIssueDocuments(source.id)) {
+        await documentsSvc.upsertIssueDocument({
+          issueId: transferred.id,
+          key: doc.key,
+          title: doc.title,
+          format: doc.format,
+          body: doc.body ?? "",
+          changeSummary: `Copied from ${sourceLabel}`,
+          createdByUserId,
+        });
+      }
+
+      // One row per side, each scoped to its own company: issue_relations is
+      // company-scoped, so a single row would be invisible from the other end.
+      await db
+        .insert(issueRelations)
+        .values([
+          {
+            companyId: source.companyId,
+            issueId: source.id,
+            relatedIssueId: transferred.id,
+            type: "transfer" as const,
+            createdByUserId,
+          },
+          {
+            companyId: targetCompanyId,
+            issueId: transferred.id,
+            relatedIssueId: source.id,
+            type: "transfer" as const,
+            createdByUserId,
+          },
+        ])
+        .onConflictDoNothing();
+
+      for (const side of [
+        { companyId: source.companyId, entityId: source.id },
+        { companyId: targetCompanyId, entityId: transferred.id },
+      ]) {
+        await logActivity(db, {
+          companyId: side.companyId,
+          actorType: actor.actorType,
+          actorId: actor.actorId,
+          agentId: actor.agentId,
+          runId: actor.runId,
+          agentApiKeyId: actor.agentApiKeyId,
+          action: "issue.transferred_to_company",
+          entityType: "issue",
+          entityId: side.entityId,
+          details: {
+            sourceIssueId: source.id,
+            sourceIssueIdentifier: source.identifier,
+            sourceCompanyId: source.companyId,
+            targetIssueId: transferred.id,
+            targetIssueIdentifier: transferred.identifier,
+            targetCompanyId,
+            targetProjectId,
+          },
+        });
+      }
+
+      res
+        .status(201)
+        .json({ id: transferred.id, identifier: transferred.identifier });
+    },
+  );
 
   router.post(
     "/companies/:companyId/issues",
