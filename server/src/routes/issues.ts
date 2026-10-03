@@ -17573,12 +17573,6 @@ export function issueRoutes(
         ) &&
         isApprovalReviewComment(req.body.body);
 
-      const isNonApprovalParticipantComment =
-        !shouldAutoApproveReviewComment &&
-        currentIssue.status === "in_review" &&
-        currentExecutionState?.status === "pending" &&
-        actorMatchesExecutionParticipant(actor, currentExecutionState.currentParticipant ?? null);
-
       // Persist the comment and the auto-approval state transition atomically when both apply.
       // Without a single transaction, a 422 (or any error) thrown by the status update after the
       // comment is inserted would leave an orphan comment without the corresponding state change.
@@ -18051,7 +18045,7 @@ export function issueRoutes(
           reopened,
           currentStatus: wakeIssueSnapshot.status,
         });
-        if (assigneeId && !goalCommentSteered && shouldWakeAssigneeForComment && !isNonApprovalParticipantComment) {
+        if (assigneeId && !goalCommentSteered && shouldWakeAssigneeForComment) {
           if (reopened) {
             addWakeup(assigneeId, {
               source: "automation",

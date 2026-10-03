@@ -676,10 +676,25 @@ function applyIssueExecutionStageTransition(input: TransitionInput): TransitionR
 
   if (!input.policy) {
     if (existingState) {
-      patch.executionState = null;
-      if (input.issue.status === "in_review" && existingState.returnAssignee) {
-        patch.status = "in_progress";
-        Object.assign(patch, patchForPrincipal(existingState.returnAssignee));
+      // When the pending-stage participant sends a plain PATCH (comment only,
+      // no policy, no requested status, and no policy removal), they are not
+      // making a decision — preserve the execution state so the approval stage
+      // is not silently cleared. When the policy was actively removed
+      // (previousPolicy non-null), collapse as before regardless of actor.
+      const actorIsPendingParticipantFreeComment =
+        existingState.status === PENDING_STATUS &&
+        existingState.currentParticipant !== null &&
+        existingState.currentParticipant.type === "user" &&
+        principalsEqual(actor, existingState.currentParticipant) &&
+        requestedStatus === undefined &&
+        !input.previousPolicy;
+
+      if (!actorIsPendingParticipantFreeComment) {
+        patch.executionState = null;
+        if (input.issue.status === "in_review" && existingState.returnAssignee) {
+          patch.status = "in_progress";
+          Object.assign(patch, patchForPrincipal(existingState.returnAssignee));
+        }
       }
     }
     return { patch };
