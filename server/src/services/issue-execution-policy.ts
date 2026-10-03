@@ -638,8 +638,10 @@ function clearExecutionStatePatch(input: {
   returnAssignee: IssueExecutionStagePrincipal | null;
 }) {
   input.patch.executionState = null;
-  if (input.requestedStatus === undefined && input.issueStatus === "in_review" && input.returnAssignee) {
-    input.patch.status = "in_progress";
+  if (input.issueStatus === "in_review" && input.returnAssignee) {
+    if (input.requestedStatus === undefined) {
+      input.patch.status = "in_progress";
+    }
     Object.assign(input.patch, patchForPrincipal(input.returnAssignee));
   }
 }
@@ -719,6 +721,9 @@ function applyIssueExecutionStageTransition(input: TransitionInput): TransitionR
     // including a board cancellation that deliberately abandons the cycle,
     // keeps the established clear/return-to-executor behavior below, exactly
     // like a bare policy edit with no requested status.
+    // Note: this guard intentionally omits `!input.previousPolicy` (unlike its twin at the !input.policy
+    // branch above). This branch is only reachable when input.policy is non-null, so `previousPolicy`
+    // is irrelevant — we are already operating under a live policy.
     const hasLiveReviewCycle =
       existingState.status === PENDING_STATUS || existingState.status === CHANGES_REQUESTED_STATUS;
     if (hasLiveReviewCycle && requestedStatus === "done") {
