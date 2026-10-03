@@ -550,6 +550,22 @@ export function resolveHeartbeatRunResponse(input: {
   };
 }
 
+export function shouldPostRunPresentationComment(input: {
+  issueId: string | null | undefined;
+  skipRunIssueComment: boolean;
+  commentAction: RunPresentationCommentAction;
+  resolvedText: string | null | undefined;
+  runStatus: string;
+}): boolean {
+  return (
+    !!input.issueId &&
+    !input.skipRunIssueComment &&
+    input.commentAction === "create" &&
+    !!input.resolvedText &&
+    input.runStatus !== "cancelled"
+  );
+}
+
 export function buildHeartbeatRunIssueComment(
   resultJson: Record<string, unknown> | null | undefined,
 ): string | null {

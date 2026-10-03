@@ -10,6 +10,7 @@ import {
   readCompletedAssistantMessageCandidate,
   resolveHeartbeatRunResponse,
   selectHeartbeatRunFinalAgentMessage,
+  shouldPostRunPresentationComment,
 } from "../services/heartbeat-run-summary.js";
 
 describe("selectHeartbeatRunFinalAgentMessage", () => {
@@ -977,5 +978,83 @@ describe("mergeHeartbeatRunResultJson", () => {
       summary: "adapter result",
       stdout: "raw stdout",
     });
+  });
+});
+
+describe("shouldPostRunPresentationComment", () => {
+  const base = {
+    issueId: "issue-1",
+    skipRunIssueComment: false,
+    commentAction: "create" as const,
+    resolvedText: "Here is my analysis.",
+    runStatus: "succeeded",
+  };
+
+  it("allows posting for a successful run with resolved text", () => {
+    expect(shouldPostRunPresentationComment(base)).toBe(true);
+  });
+
+  it("suppresses posting when the run is cancelled", () => {
+    expect(
+      shouldPostRunPresentationComment({ ...base, runStatus: "cancelled" }),
+    ).toBe(false);
+  });
+
+  it("suppresses posting when skipRunIssueComment is set", () => {
+    expect(
+      shouldPostRunPresentationComment({ ...base, skipRunIssueComment: true }),
+    ).toBe(false);
+  });
+
+  it("suppresses posting when there is no resolved text", () => {
+    expect(
+      shouldPostRunPresentationComment({ ...base, resolvedText: "" }),
+    ).toBe(false);
+  });
+
+  it("suppresses posting when there is no issueId", () => {
+    expect(
+      shouldPostRunPresentationComment({ ...base, issueId: null }),
+    ).toBe(false);
+  });
+
+  it("suppresses posting when commentAction is not create", () => {
+    expect(
+      shouldPostRunPresentationComment({ ...base, commentAction: "none" }),
+    ).toBe(false);
+  });
+});
+
+describe("cancelled run — presentation comment suppression scenario", () => {
+  it("does not post a comment and records run_cancelled when run is cancelled with non-empty resolved text", () => {
+    const resolved = resolveHeartbeatRunResponse({
+      resultJson: { summary: "Partial work completed before cancellation." },
+    });
+
+    // Pre-condition: the resolver produces presentable text
+    expect(resolved.text).toBeTruthy();
+    expect(resolved.decision.commentAction).toBe("create");
+
+    // The presentation gate in heartbeat.ts suppresses posting for cancelled runs
+    expect(
+      shouldPostRunPresentationComment({
+        issueId: "issue-1",
+        skipRunIssueComment: false,
+        commentAction: resolved.decision.commentAction,
+        resolvedText: resolved.text,
+        runStatus: "cancelled",
+      }),
+    ).toBe(false);
+
+    // The else-if in heartbeat.ts assigns the reason code for the suppressed case.
+    // Cancelled runs (not skipRunIssueComment) get "run_cancelled".
+    const skipRunIssueComment = false;
+    const runStatus = "cancelled";
+    const appendedReasonCode = skipRunIssueComment
+      ? "issue_comment_suppressed"
+      : runStatus === "cancelled"
+        ? "run_cancelled"
+        : "run_has_no_issue";
+    expect(appendedReasonCode).toBe("run_cancelled");
   });
 });

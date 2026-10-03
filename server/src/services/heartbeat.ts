@@ -323,6 +323,7 @@ import {
   readCompletedAssistantMessageCandidate,
   resolveHeartbeatRunResponse,
   selectHeartbeatRunFinalAgentMessage,
+  shouldPostRunPresentationComment,
   type RunPresentationDecision,
 } from "./heartbeat-run-summary.js";
 import {
@@ -24860,12 +24861,13 @@ export function heartbeatService(
             let presentationDecision: RunPresentationDecision =
               resolved.decision;
 
-            if (
-              issueId &&
-              !skipRunIssueComment &&
-              presentationDecision.commentAction === "create" &&
-              resolved.text
-            ) {
+            if (shouldPostRunPresentationComment({
+              issueId,
+              skipRunIssueComment,
+              commentAction: presentationDecision.commentAction,
+              resolvedText: resolved.text,
+              runStatus: livenessRun.status,
+            })) {
               // The presentation resolver exposes only the final assistant
               // surface selected from completed final messages or accepted
               // semantic results. For an exactly bound external-chat run,
@@ -24874,12 +24876,12 @@ export function heartbeatService(
               const presentationAuthorizationReason =
                 await resolveChatRunPresentationAuthorizationReason(db, {
                   companyId: livenessRun.companyId,
-                  issueId,
+                  issueId: issueId!,
                   runId: livenessRun.id,
                 });
               const comment = await issuesSvc.addComment(
-                issueId,
-                resolved.text,
+                issueId!,
+                resolved.text!,
                 { agentId: agent.id, runId: livenessRun.id },
                 { authorizationReason: presentationAuthorizationReason },
               );
@@ -24897,10 +24899,10 @@ export function heartbeatService(
                 actorId: agent.id,
                 agentId: agent.id,
                 runId: livenessRun.id,
-                issueId,
+                issueId: issueId!,
                 action: "issue.comment_added",
                 entityType: "issue",
-                entityId: issueId,
+                entityId: issueId!,
                 details: {
                   commentId: comment.id,
                   bodySnippet: comment.body.slice(0, 120),
@@ -24919,7 +24921,9 @@ export function heartbeatService(
                   ...presentationDecision.reasonCodes,
                   skipRunIssueComment
                     ? "issue_comment_suppressed"
-                    : "run_has_no_issue",
+                    : livenessRun.status === "cancelled"
+                      ? "run_cancelled"
+                      : "run_has_no_issue",
                 ],
               };
             }
