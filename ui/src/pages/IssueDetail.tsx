@@ -6861,7 +6861,9 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     !isTerminalIssue && isPendingExecutionParticipant(issue, currentUserId)
       ? "To approve: click Approve in the properties panel, or type exactly: ## Review: APPROVED"
       : null;
-  const composerHint = activePauseHold ? null : (pendingApprovalHint ?? reopenComposerHint);
+  const composerHint = activePauseHold
+    ? null
+    : ([reopenComposerHint, pendingApprovalHint].filter(Boolean).join(" · ") || null);
   const queuedCommentReason: "hold" | "active_run" | "other" = activePauseHold
     ? "hold"
     : "active_run";
