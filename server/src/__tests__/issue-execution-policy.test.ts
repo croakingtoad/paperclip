@@ -1027,6 +1027,102 @@ describe("issue execution policy transitions", () => {
       expect(result.patch.status).toBe("in_progress");
       expect(result.patch.assigneeAgentId).toBe(coderAgentId);
     });
+
+    it("Approve (requestedStatus done) with policy=null does not force in_progress", () => {
+      const stageId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+      const result = applyIssueExecutionPolicyTransition({
+        issue: {
+          status: "in_review",
+          assigneeAgentId: null,
+          assigneeUserId: boardUserId,
+          executionPolicy: null,
+          executionState: {
+            status: "pending",
+            currentStageId: stageId,
+            currentStageIndex: 0,
+            currentStageType: "approval",
+            currentParticipant: { type: "user", userId: boardUserId },
+            returnAssignee: { type: "agent", agentId: coderAgentId },
+            completedStageIds: [],
+            lastDecisionId: null,
+            lastDecisionOutcome: null,
+          },
+        },
+        policy: null,
+        requestedStatus: "done",
+        requestedAssigneePatch: {},
+        actor: { userId: boardUserId },
+      });
+
+      // Approve sends requestedStatus "done" — clearExecutionStatePatch must not override it with in_progress.
+      expect(result.patch.status).not.toBe("in_progress");
+      expect(result.patch.executionState).toBeNull();
+    });
+  });
+
+  describe("stale stage ID (stage-ID drift)", () => {
+    // A valid UUID that will not match any stage in any policy constructed by the helpers above.
+    const staleStagedId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+
+    it("pending user-participant free comment with drifted stage ID preserves execution state", () => {
+      const policy = approvalOnlyPolicy();
+      const result = applyIssueExecutionPolicyTransition({
+        issue: {
+          status: "in_review",
+          assigneeAgentId: null,
+          assigneeUserId: boardUserId,
+          executionPolicy: policy,
+          executionState: {
+            status: "pending",
+            currentStageId: staleStagedId,
+            currentStageIndex: 0,
+            currentStageType: "approval",
+            currentParticipant: { type: "user", userId: boardUserId },
+            returnAssignee: { type: "agent", agentId: coderAgentId },
+            completedStageIds: [],
+            lastDecisionId: null,
+            lastDecisionOutcome: null,
+          },
+        },
+        policy,
+        requestedStatus: undefined,
+        requestedAssigneePatch: {},
+        actor: { userId: boardUserId },
+      });
+
+      // Pending participant posting a free comment — state must be preserved even with a drifted stage ID.
+      expect(result.patch).toEqual({});
+    });
+
+    it("non-participant with drifted stage ID still has execution state cleared", () => {
+      const policy = approvalOnlyPolicy();
+      const result = applyIssueExecutionPolicyTransition({
+        issue: {
+          status: "in_review",
+          assigneeAgentId: null,
+          assigneeUserId: boardUserId,
+          executionPolicy: policy,
+          executionState: {
+            status: "pending",
+            currentStageId: staleStagedId,
+            currentStageIndex: 0,
+            currentStageType: "approval",
+            currentParticipant: { type: "user", userId: boardUserId },
+            returnAssignee: { type: "agent", agentId: coderAgentId },
+            completedStageIds: [],
+            lastDecisionId: null,
+            lastDecisionOutcome: null,
+          },
+        },
+        policy,
+        requestedStatus: undefined,
+        requestedAssigneePatch: {},
+        actor: { agentId: ctoAgentId },
+      });
+
+      // Non-participant must still have state cleared on stage-ID drift.
+      expect(result.patch.executionState).toBeNull();
+    });
   });
 
   describe("reopening from done/cancelled clears state", () => {

@@ -690,11 +690,12 @@ function applyIssueExecutionStageTransition(input: TransitionInput): TransitionR
         !input.previousPolicy;
 
       if (!actorIsPendingParticipantFreeComment) {
-        patch.executionState = null;
-        if (input.issue.status === "in_review" && existingState.returnAssignee) {
-          patch.status = "in_progress";
-          Object.assign(patch, patchForPrincipal(existingState.returnAssignee));
-        }
+        clearExecutionStatePatch({
+          patch,
+          issueStatus: input.issue.status,
+          requestedStatus,
+          returnAssignee: existingState.returnAssignee,
+        });
       }
     }
     return { patch };
@@ -711,12 +712,20 @@ function applyIssueExecutionStageTransition(input: TransitionInput): TransitionR
   }
 
   if (existingState?.currentStageId && !currentStage) {
-    clearExecutionStatePatch({
-      patch,
-      issueStatus: input.issue.status,
-      requestedStatus,
-      returnAssignee: existingState.returnAssignee,
-    });
+    const actorIsPendingParticipantFreeComment =
+      existingState.status === PENDING_STATUS &&
+      existingState.currentParticipant !== null &&
+      existingState.currentParticipant.type === "user" &&
+      principalsEqual(actor, existingState.currentParticipant) &&
+      requestedStatus === undefined;
+    if (!actorIsPendingParticipantFreeComment) {
+      clearExecutionStatePatch({
+        patch,
+        issueStatus: input.issue.status,
+        requestedStatus,
+        returnAssignee: existingState.returnAssignee,
+      });
+    }
     return { patch };
   }
 
