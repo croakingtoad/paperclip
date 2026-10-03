@@ -1058,6 +1058,39 @@ describe("issue execution policy transitions", () => {
       expect(result.patch.status).not.toBe("in_progress");
       expect(result.patch.executionState).toBeNull();
     });
+
+    it("Request Changes (requestedStatus in_progress) with policy=null restores return assignee", () => {
+      const stageId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+      const result = applyIssueExecutionPolicyTransition({
+        issue: {
+          status: "in_review",
+          assigneeAgentId: null,
+          assigneeUserId: boardUserId,
+          executionPolicy: null,
+          executionState: {
+            status: "pending",
+            currentStageId: stageId,
+            currentStageIndex: 0,
+            currentStageType: "approval",
+            currentParticipant: { type: "user", userId: boardUserId },
+            returnAssignee: { type: "agent", agentId: coderAgentId },
+            completedStageIds: [],
+            lastDecisionId: null,
+            lastDecisionOutcome: null,
+          },
+        },
+        policy: null,
+        requestedStatus: "in_progress",
+        requestedAssigneePatch: {},
+        actor: { userId: boardUserId },
+      });
+
+      // Request Changes sends requestedStatus "in_progress" — hand-back must restore return assignee.
+      expect(result.patch.executionState).toBeNull();
+      expect(result.patch.assigneeAgentId).toBe(coderAgentId);
+      // Status is driven by the caller, not forced here; patch.status must not be "in_progress" from this helper.
+      expect(result.patch.status).toBeUndefined();
+    });
   });
 
   describe("stale stage ID (stage-ID drift)", () => {
