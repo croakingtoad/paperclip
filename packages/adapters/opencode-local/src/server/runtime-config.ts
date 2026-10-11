@@ -49,7 +49,7 @@ function expandEnvPlaceholders<T>(value: T, resolve: (name: string) => string | 
   return value;
 }
 
-function parseProviderConfig(
+export function parseProviderConfig(
   raw: unknown,
   resolveEnv: (name: string) => string | undefined,
   notes: string[],
