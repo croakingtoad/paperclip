@@ -12,6 +12,7 @@ describe("openCode models", () => {
   afterEach(() => {
     delete process.env.PAPERCLIP_OPENCODE_COMMAND;
     delete process.env.OPENCODE_ALLOW_ALL_MODELS;
+    delete process.env.PAPERCLIP_OPENCODE_PROVIDERS;
     resetOpenCodeModelsCacheForTests();
     vi.restoreAllMocks();
     vi.useRealTimers();
@@ -20,6 +21,52 @@ describe("openCode models", () => {
   it("returns an empty list when discovery command is unavailable", async () => {
     process.env.PAPERCLIP_OPENCODE_COMMAND =
       "__paperclip_missing_opencode_command__";
+    await expect(listOpenCodeModels()).resolves.toEqual([]);
+  });
+
+  it("lists models declared in PAPERCLIP_OPENCODE_PROVIDERS even when discovery cannot run", async () => {
+    process.env.PAPERCLIP_OPENCODE_COMMAND =
+      "__paperclip_missing_opencode_command__";
+    process.env.PAPERCLIP_OPENCODE_PROVIDERS = JSON.stringify({
+      "vllm-fleet": {
+        npm: "@ai-sdk/openai-compatible",
+        options: {
+          baseURL: "http://gateway.example/v1",
+          apiKey: "{env:VLLM_FLEET_API_KEY}",
+        },
+        models: { "qwen3.8-27b": {}, "gemma-4-coder": {} },
+      },
+    });
+    await expect(listOpenCodeModels()).resolves.toEqual([
+      { id: "vllm-fleet/gemma-4-coder", label: "vllm-fleet/gemma-4-coder" },
+      { id: "vllm-fleet/qwen3.8-27b", label: "vllm-fleet/qwen3.8-27b" },
+    ]);
+  });
+
+  it("unions declared gateway models with discovered ones without duplicating", async () => {
+    vi.spyOn(serverUtils, "runChildProcess").mockResolvedValue({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      stdout: "openai/gpt-5\nvllm-fleet/qwen3.8-27b\n",
+      stderr: "",
+      pid: 1,
+      startedAt: new Date().toISOString(),
+    });
+    process.env.PAPERCLIP_OPENCODE_PROVIDERS = JSON.stringify({
+      "vllm-fleet": { models: { "qwen3.8-27b": {}, "bonsai-27b": {} } },
+    });
+    await expect(listOpenCodeModels()).resolves.toEqual([
+      { id: "openai/gpt-5", label: "openai/gpt-5" },
+      { id: "vllm-fleet/bonsai-27b", label: "vllm-fleet/bonsai-27b" },
+      { id: "vllm-fleet/qwen3.8-27b", label: "vllm-fleet/qwen3.8-27b" },
+    ]);
+  });
+
+  it("ignores a malformed PAPERCLIP_OPENCODE_PROVIDERS instead of failing the dropdown", async () => {
+    process.env.PAPERCLIP_OPENCODE_COMMAND =
+      "__paperclip_missing_opencode_command__";
+    process.env.PAPERCLIP_OPENCODE_PROVIDERS = "not json";
     await expect(listOpenCodeModels()).resolves.toEqual([]);
   });
 
