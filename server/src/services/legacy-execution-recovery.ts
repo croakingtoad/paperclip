@@ -40,7 +40,7 @@ export const legacyReconciliationRunFields = {
 
 /** Error families describe availability, not whether earlier actions happened. */
 export function legacyExecutionNeedsReconciliation(
-  run: Pick<Run, "runtimeMode" | "status" | "errorCode" | "resultJson"> & Partial<Pick<Run, "scheduledRetryAttempt" | "scheduledRetryReason" | "contextSnapshot">>,
+  run: Pick<Run, "runtimeMode" | "status" | "errorCode" | "resultJson"> & Partial<Pick<Run, "startedAt" | "scheduledRetryAttempt" | "scheduledRetryReason" | "contextSnapshot">>,
 ): boolean {
   if (
     run.runtimeMode === "native" ||
@@ -48,7 +48,12 @@ export function legacyExecutionNeedsReconciliation(
   )
     return false;
   // A fresh model turn cannot repair or verify unrestored files.
-  if (run.resultJson?.workspaceRestoreFailure === "restore_unsafe_archive" || hasRequiredWorkspaceRecovery(run.resultJson)) return true;
+  if (run.resultJson?.workspaceRestoreFailure === "restore_unsafe_archive") return true;
+  // A queued turn cancelled before it was ever claimed has no provider actions
+  // to reconcile, whatever cancelled it: `startedAt` is written in the claim
+  // transaction, ahead of dispatch. An absent field stays a hold.
+  if (run.status === "cancelled" && run.startedAt === null) return false;
+  if (hasRequiredWorkspaceRecovery(run.resultJson)) return true;
   // A fresh conversation turn lets the agent decide what remains. The retry
   // scheduler, not an action-outcome hold, owns the automatic attempt limit.
   if (hasConversationContinuationPolicy(run.resultJson)) return false;
