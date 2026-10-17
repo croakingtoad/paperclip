@@ -134,6 +134,7 @@ export function isAiConnectionCompatible(
   return (
     candidates.some((method) => method?.adapters.includes(adapterType)) &&
     (requirement.provider !== "openrouter" ||
+      adapterType === "opencode_local" ||
       (typeof model === "string" && model.startsWith("openrouter/")))
   );
 }
