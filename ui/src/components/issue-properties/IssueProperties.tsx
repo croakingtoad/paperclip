@@ -13,6 +13,7 @@ import {
   isArtifactReviewDocumentKey,
   type ExecutionWorkspace,
   type Issue,
+  type IssueExecutionStageType,
   type IssueLabel,
 } from "@paperclipai/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -42,7 +43,13 @@ import {
 import { getRecentProjectIds, trackRecentProject } from "../../lib/recent-projects";
 import { orderItemsBySelectedAndRecent } from "../../lib/recent-selections";
 import { formatAssigneeUserLabel, formatUserLabel } from "../../lib/assignees";
-import { buildExecutionPolicy, isPendingExecutionParticipant, stageParticipantValues } from "../../lib/issue-execution-policy";
+import {
+  EXECUTION_STAGE_LABEL,
+  EXECUTION_STAGE_PARTICIPANT_LABEL,
+  buildExecutionPolicy,
+  isPendingExecutionParticipant,
+  stageParticipantValues,
+} from "../../lib/issue-execution-policy";
 import {
   formatMonitorAbsolute,
   formatMonitorAbsoluteFull,
@@ -378,6 +385,8 @@ export function IssueProperties({
   const [reviewerSearch, setReviewerSearch] = useState("");
   const [approversOpen, setApproversOpen] = useState(false);
   const [approverSearch, setApproverSearch] = useState("");
+  const [gitOwnersOpen, setGitOwnersOpen] = useState(false);
+  const [gitOwnerSearch, setGitOwnerSearch] = useState("");
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [monitorDetailsOpen, setMonitorDetailsOpen] = useState(false);
   const [scheduledRetryOpen, setScheduledRetryOpen] = useState(false);
@@ -934,6 +943,7 @@ export function IssueProperties({
   );
   const reviewerValues = stageParticipantValues(issue.executionPolicy, "review");
   const approverValues = stageParticipantValues(issue.executionPolicy, "approval");
+  const gitOwnerValues = stageParticipantValues(issue.executionPolicy, "git");
   const userLabel = (userId: string | null | undefined) => formatAssigneeUserLabel(userId, currentUserId, userLabelMap);
   const actualUserLabel = (userId: string | null | undefined) => formatUserLabel(userId, userLabelMap);
   const assigneeUserLabel = userLabel(issue.assigneeUserId);
@@ -995,23 +1005,21 @@ export function IssueProperties({
     }
     applyAssignee(next, track);
   };
-  const updateExecutionPolicy = (nextReviewers: string[], nextApprovers: string[]) => {
+  const updateExecutionStage = (stageType: IssueExecutionStageType, nextValues: string[]) => {
     onUpdate({
       executionPolicy: buildExecutionPolicy({
         existingPolicy: issue.executionPolicy ?? null,
-        reviewerValues: nextReviewers,
-        approverValues: nextApprovers,
+        stageValues: { [stageType]: nextValues },
       }),
     });
   };
-  const toggleExecutionParticipant = (stageType: "review" | "approval", value: string) => {
-    const currentValues = stageType === "review" ? reviewerValues : approverValues;
-    const nextValues = currentValues.includes(value)
-      ? currentValues.filter((candidate) => candidate !== value)
-      : [...currentValues, value];
-    updateExecutionPolicy(
-      stageType === "review" ? nextValues : reviewerValues,
-      stageType === "approval" ? nextValues : approverValues,
+  const toggleExecutionParticipant = (stageType: IssueExecutionStageType, value: string) => {
+    const currentValues = stageParticipantValues(issue.executionPolicy, stageType);
+    updateExecutionStage(
+      stageType,
+      currentValues.includes(value)
+        ? currentValues.filter((candidate) => candidate !== value)
+        : [...currentValues, value],
     );
   };
   const executionParticipantLabel = (value: string) => {
@@ -1031,6 +1039,10 @@ export function IssueProperties({
   const approverTrigger = approverValues.length > 0
     ? <span className="text-sm truncate min-w-0" title={approverLabel}>{approverLabel}</span>
     : <span className="text-sm text-muted-foreground">None</span>;
+  const gitOwnerLabel = gitOwnerValues.map((value) => executionParticipantLabel(value)).join(", ");
+  const gitOwnerTrigger = gitOwnerValues.length > 0
+    ? <span className="text-sm truncate min-w-0" title={gitOwnerLabel}>{gitOwnerLabel}</span>
+    : <span className="text-sm text-muted-foreground">None</span>;
   // PAP-16506 P4: who may give the `in_review` verdict. Only an agent sets this,
   // and only the two opt-in constraints are worth a row — the default (`null` ≡
   // "anyone can approve") is what every issue already does, so it shows nothing.
@@ -1042,22 +1054,23 @@ export function IssueProperties({
     if (issue.executionState) return null;
     if (reviewerValues.length > 0) return "review";
     if (approverValues.length > 0) return "approval";
+    if (gitOwnerValues.length > 0) return "git";
     return null;
   })();
-  const runExecutionButton = (stageType: "review" | "approval") => (
+  const runExecutionButton = (stageType: IssueExecutionStageType) => (
     <PropertyRow label="">
       <button
         type="button"
         className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
         onClick={() => onUpdate({ status: "in_review" })}
       >
-        {stageType === "review" ? "Run review now" : "Run approval now"}
+        Run {EXECUTION_STAGE_LABEL[stageType].toLowerCase()} now
       </button>
     </PropertyRow>
   );
   const currentExecutionLabel = (() => {
     if (!issue.executionState?.currentStageType) return null;
-    const stageLabel = issue.executionState.currentStageType === "review" ? "Review" : "Approval";
+    const stageLabel = EXECUTION_STAGE_LABEL[issue.executionState.currentStageType];
     const participant = issue.executionState.currentParticipant;
     const participantLabel = participant
       ? (participant.type === "agent"
@@ -1261,8 +1274,7 @@ export function IssueProperties({
     : never) => {
     const basePolicy = buildExecutionPolicy({
       existingPolicy: issue.executionPolicy ?? null,
-      reviewerValues,
-      approverValues,
+      stageValues: {},
     });
     if (!basePolicy && !nextMonitor) {
       onUpdate({ executionPolicy: null });
@@ -1854,7 +1866,7 @@ export function IssueProperties({
   );
 
   const executionParticipantsContent = (
-    stageType: "review" | "approval",
+    stageType: IssueExecutionStageType,
     values: string[],
     search: string,
     setSearch: (value: string) => void,
@@ -1863,7 +1875,7 @@ export function IssueProperties({
     <>
       <input
         className="w-full px-2 py-1.5 text-xs bg-transparent outline-none border-b border-border mb-1 placeholder:text-muted-foreground/50"
-        placeholder={`Search ${stageType === "review" ? "reviewers" : "approvers"}...`}
+        placeholder={`Search ${EXECUTION_STAGE_PARTICIPANT_LABEL[stageType].toLowerCase()}...`}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         autoFocus={!inline}
@@ -1876,7 +1888,7 @@ export function IssueProperties({
           )}
           onClick={onClear}
         >
-          No {stageType === "review" ? "reviewers" : "approvers"}
+          No {EXECUTION_STAGE_PARTICIPANT_LABEL[stageType].toLowerCase()}
         </button>
         {currentUserId && (
           <button
@@ -2619,7 +2631,7 @@ export function IssueProperties({
             reviewerValues,
             reviewerSearch,
             setReviewerSearch,
-            () => updateExecutionPolicy([], approverValues),
+            () => updateExecutionStage("review", []),
           )}
         </PropertyPicker>
         {nextRunnableExecutionStage === "review" && reviewerValues.length > 0 ? runExecutionButton("review") : null}
@@ -2638,10 +2650,29 @@ export function IssueProperties({
             approverValues,
             approverSearch,
             setApproverSearch,
-            () => updateExecutionPolicy(reviewerValues, []),
+            () => updateExecutionStage("approval", []),
           )}
         </PropertyPicker>
         {nextRunnableExecutionStage === "approval" && approverValues.length > 0 ? runExecutionButton("approval") : null}
+
+        <PropertyPicker
+          inline={inline}
+          label="Git owner"
+          open={gitOwnersOpen}
+          onOpenChange={(open) => { setGitOwnersOpen(open); if (!open) setGitOwnerSearch(""); }}
+          triggerContent={gitOwnerTrigger}
+          triggerClassName="min-w-0 max-w-full"
+          popoverClassName="w-56"
+        >
+          {executionParticipantsContent(
+            "git",
+            gitOwnerValues,
+            gitOwnerSearch,
+            setGitOwnerSearch,
+            () => updateExecutionStage("git", []),
+          )}
+        </PropertyPicker>
+        {nextRunnableExecutionStage === "git" && gitOwnerValues.length > 0 ? runExecutionButton("git") : null}
 
         {currentExecutionLabel && (
           <PropertyRow label="Execution">

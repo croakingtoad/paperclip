@@ -139,6 +139,7 @@ import {
   type IssueThreadInteractionCanonicalResolverPolicy,
   type IssueComment,
   type IssueCommentPresentation,
+  type IssueExecutionStageType,
   type IssueQueuedCommentQueue,
   type IssueWatchdogDiscoveryKind,
   type ProjectWorkspace,
@@ -492,7 +493,7 @@ type ActivityExecutionParticipant = Pick<
   "type" | "agentId" | "userId"
 >;
 type ExecutionStageWakeContext = {
-  wakeRole: "reviewer" | "approver" | "executor";
+  wakeRole: "reviewer" | "approver" | "executor" | "git";
   stageId: string | null;
   stageType: ParsedExecutionState["currentStageType"];
   currentParticipant: ParsedExecutionState["currentParticipant"];
@@ -2870,6 +2871,43 @@ function diffExecutionParticipants(
   };
 }
 
+/**
+ * Per-stage-type wake shape. Every entry pends the issue in `in_review` under the
+ * stage participant; only the reason, role, and allowed actions differ. `git` is the
+ * one role that is told to *act* on the repository rather than only judge the work.
+ */
+const PENDING_STAGE_WAKE_BY_STAGE_TYPE = {
+  review: {
+    reason: "execution_review_requested",
+    wakeRole: "reviewer",
+    allowedActions: ["approve", "request_changes"],
+  },
+  approval: {
+    reason: "execution_approval_requested",
+    wakeRole: "approver",
+    allowedActions: ["approve", "request_changes"],
+  },
+  git: {
+    reason: "execution_git_requested",
+    wakeRole: "git",
+    allowedActions: [
+      "commit",
+      "push",
+      "open_pull_request",
+      "merge",
+      "approve",
+      "request_changes",
+    ],
+  },
+} as const satisfies Record<
+  IssueExecutionStageType,
+  {
+    reason: string;
+    wakeRole: ExecutionStageWakeContext["wakeRole"];
+    allowedActions: readonly string[];
+  }
+>;
+
 function buildExecutionStageWakeup(input: {
   issueId: string;
   previousState: ParsedExecutionState | null;
@@ -2895,15 +2933,13 @@ function buildExecutionStageWakeup(input: {
       );
     if (!agentId || !stageChanged) return null;
 
-    const reason =
-      nextState.currentStageType === "approval"
-        ? "execution_approval_requested"
-        : "execution_review_requested";
+    const { reason, wakeRole, allowedActions } =
+      PENDING_STAGE_WAKE_BY_STAGE_TYPE[nextState.currentStageType ?? "review"] ??
+      PENDING_STAGE_WAKE_BY_STAGE_TYPE.review;
     const executionStage = buildExecutionStageWakeContext({
       state: nextState,
-      wakeRole:
-        nextState.currentStageType === "approval" ? "approver" : "reviewer",
-      allowedActions: ["approve", "request_changes"],
+      wakeRole,
+      allowedActions: [...allowedActions],
     });
 
     return {

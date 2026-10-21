@@ -553,8 +553,11 @@ function PickerGallery() {
   const [issue, setIssue] = useState(() =>
     createIssue({
       executionPolicy: buildExecutionPolicy({
-        reviewerValues: ["agent:agent-qa"],
-        approverValues: ["user:user-board"],
+        stageValues: {
+          review: ["agent:agent-qa"],
+          approval: ["user:user-board"],
+          git: ["agent:agent-cto"],
+        },
       }),
     }),
   );
@@ -581,7 +584,7 @@ function PickerGallery() {
       description="Closed trigger states stay compact, while the dropdowns are interactive for search and selection review."
     >
       <div className="grid gap-4 xl:grid-cols-3">
-        <StatePanel label="ExecutionParticipantPicker" detail="Review and approval participants share the same policy object.">
+        <StatePanel label="ExecutionParticipantPicker" detail="Review, approval, and git participants share the same policy object.">
           <div className="flex flex-wrap gap-3">
             <ExecutionParticipantPicker
               issue={issue}
@@ -593,6 +596,13 @@ function PickerGallery() {
             <ExecutionParticipantPicker
               issue={issue}
               stageType="approval"
+              agents={storybookAgents}
+              currentUserId="user-board"
+              onUpdate={(patch) => setIssue((current) => ({ ...current, ...patch }))}
+            />
+            <ExecutionParticipantPicker
+              issue={issue}
+              stageType="git"
               agents={storybookAgents}
               currentUserId="user-board"
               onUpdate={(patch) => setIssue((current) => ({ ...current, ...patch }))}

@@ -23,8 +23,10 @@ describe("buildExecutionPolicy", () => {
 
     const policy = buildExecutionPolicy({
       existingPolicy: null,
-      reviewerValues: [`agent:${AGENT_ID}`],
-      approverValues: ["user:local-board"],
+      stageValues: {
+        review: [`agent:${AGENT_ID}`],
+        approval: ["user:local-board"],
+      },
     });
 
     expect(policy).not.toBeNull();
@@ -36,6 +38,40 @@ describe("buildExecutionPolicy", () => {
       expect(stage.participants).toHaveLength(1);
       expect(stage.participants[0]?.id).toMatch(UUID_PATTERN);
     }
+  });
+
+  it("emits a git stage last, after review and approval", () => {
+    const policy = buildExecutionPolicy({
+      existingPolicy: null,
+      stageValues: {
+        git: [`agent:${AGENT_ID}`],
+        approval: ["user:local-board"],
+        review: ["user:reviewer"],
+      },
+    });
+
+    expect(issueExecutionPolicySchema.safeParse(policy).success).toBe(true);
+    expect(policy?.stages.map((stage) => stage.type)).toEqual(["review", "approval", "git"]);
+  });
+
+  it("keeps stages the caller did not mention, and clears the ones it empties", () => {
+    const existingPolicy = buildExecutionPolicy({
+      existingPolicy: null,
+      stageValues: { review: ["user:reviewer"], git: [`agent:${AGENT_ID}`] },
+    });
+
+    // A reviewers-only edit must not silently drop the git owner.
+    const afterReviewEdit = buildExecutionPolicy({
+      existingPolicy,
+      stageValues: { review: ["user:other-reviewer"] },
+    });
+    expect(afterReviewEdit?.stages.map((stage) => stage.type)).toEqual(["review", "git"]);
+
+    const afterGitCleared = buildExecutionPolicy({
+      existingPolicy,
+      stageValues: { git: [] },
+    });
+    expect(afterGitCleared?.stages.map((stage) => stage.type)).toEqual(["review"]);
   });
 });
 

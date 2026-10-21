@@ -521,7 +521,10 @@ export type ExternalObjectMentionConfidence = (typeof EXTERNAL_OBJECT_MENTION_CO
 export const ISSUE_EXECUTION_POLICY_MODES = ["normal", "auto"] as const;
 export type IssueExecutionPolicyMode = (typeof ISSUE_EXECUTION_POLICY_MODES)[number];
 
-export const ISSUE_EXECUTION_STAGE_TYPES = ["review", "approval"] as const;
+// Order is the stage order the board offers: review, then approval, then git.
+// The engine walks `policy.stages` in array order and is agnostic to the label,
+// so adding a type here is additive — no migration (the column is jsonb).
+export const ISSUE_EXECUTION_STAGE_TYPES = ["review", "approval", "git"] as const;
 export type IssueExecutionStageType = (typeof ISSUE_EXECUTION_STAGE_TYPES)[number];
 
 export const ISSUE_MONITOR_SCHEDULED_BY = ["assignee", "board"] as const;

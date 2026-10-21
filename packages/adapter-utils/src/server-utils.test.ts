@@ -2883,6 +2883,33 @@ describe("renderPaperclipWakePrompt", () => {
     );
   });
 
+  it("tells the git stage owner to perform the repository work, not to withhold it", () => {
+    const prompt = renderPaperclipWakePrompt({
+      reason: "execution_git_requested",
+      issue: {
+        id: "issue-1",
+        identifier: "PAP-2012",
+        title: "Git handoff",
+        status: "in_review",
+      },
+      executionStage: {
+        wakeRole: "git",
+        stageId: "stage-3",
+        stageType: "git",
+        currentParticipant: { type: "agent", agentId: "agent-git" },
+        returnAssignee: { type: "agent", agentId: "agent-2" },
+        allowedActions: ["commit", "push", "open_pull_request", "merge", "approve", "request_changes"],
+      },
+      fallbackFetchNeeded: false,
+    });
+
+    expect(prompt).toContain("- execution wake role: git");
+    expect(prompt).toContain("- allowed actions: commit, push, open_pull_request, merge, approve, request_changes");
+    expect(prompt).toContain("You are waking as the git owner for this issue.");
+    // The reviewer/approver stand-down line would contradict this role.
+    expect(prompt).not.toContain("Do not execute the task itself");
+  });
+
   it("delivers typed disposition repair instructions without liveness classification", () => {
     const payload = { reason: "issue_disposition_repair", issue: { id: "issue-1", status: "in_progress" },
       dispositionRepair: { attempt: 1, maxAttempts: 2, sourceRunId: "source-1", instruction: "Record completion or a durable waiting path through the API." } };
