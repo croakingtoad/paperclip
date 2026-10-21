@@ -64,8 +64,8 @@ describe("buildExecutionPolicy", () => {
   it("adds review and approval stages to a monitor-only policy without losing its monitor", () => {
     const policy = buildExecutionPolicy({
       existingPolicy: monitorOnlyPolicy,
-      reviewerValues: [`agent:${AGENT_ID}`],
-      approverValues: ["user:local-board"],
+      stageValues: { review: [`agent:${AGENT_ID}`],
+      approval: ["user:local-board"] },
     });
 
     expect(issueExecutionPolicySchema.safeParse(policy).success).toBe(true);
@@ -77,8 +77,8 @@ describe("buildExecutionPolicy", () => {
   it("keeps a monitor-only policy when there are no review or approval stages", () => {
     expect(buildExecutionPolicy({
       existingPolicy: monitorOnlyPolicy,
-      reviewerValues: [],
-      approverValues: [],
+      stageValues: { review: [],
+      approval: [] },
     })).toEqual({
       mode: "normal",
       commentRequired: true,
@@ -99,8 +99,10 @@ describe("buildExecutionPolicy", () => {
 
     const policy = buildExecutionPolicy({
       existingPolicy: null,
-      reviewerValues: [`agent:${AGENT_ID}`],
-      approverValues: ["user:local-board"],
+      stageValues: {
+        review: [`agent:${AGENT_ID}`],
+        approval: ["user:local-board"],
+      },
     });
 
     expect(policy).not.toBeNull();
@@ -114,6 +116,40 @@ describe("buildExecutionPolicy", () => {
     }
   });
 
+  it("emits a git stage last, after review and approval", () => {
+    const policy = buildExecutionPolicy({
+      existingPolicy: null,
+      stageValues: {
+        git: [`agent:${AGENT_ID}`],
+        approval: ["user:local-board"],
+        review: ["user:reviewer"],
+      },
+    });
+
+    expect(issueExecutionPolicySchema.safeParse(policy).success).toBe(true);
+    expect(policy?.stages.map((stage) => stage.type)).toEqual(["review", "approval", "git"]);
+  });
+
+  it("keeps stages the caller did not mention, and clears the ones it empties", () => {
+    const existingPolicy = buildExecutionPolicy({
+      existingPolicy: null,
+      stageValues: { review: ["user:reviewer"], git: [`agent:${AGENT_ID}`] },
+    });
+
+    // A reviewers-only edit must not silently drop the git owner.
+    const afterReviewEdit = buildExecutionPolicy({
+      existingPolicy,
+      stageValues: { review: ["user:other-reviewer"] },
+    });
+    expect(afterReviewEdit?.stages.map((stage) => stage.type)).toEqual(["review", "git"]);
+
+    const afterGitCleared = buildExecutionPolicy({
+      existingPolicy,
+      stageValues: { git: [] },
+    });
+    expect(afterGitCleared?.stages.map((stage) => stage.type)).toEqual(["review"]);
+  });
+
   it("adds reviewers to a policy with omitted stages and retains other policy fields", () => {
     const existingPolicy = {
       authorizationPolicy: { trustPreset: "standard" },
@@ -121,7 +157,7 @@ describe("buildExecutionPolicy", () => {
       monitor: { nextCheckAt: "2099-01-01T00:00:00.000Z" },
     } as IssueExecutionPolicy;
     const before = structuredClone(existingPolicy);
-    const policy = buildExecutionPolicy({ existingPolicy, reviewerValues: [`agent:${AGENT_ID}`], approverValues: [] });
+    const policy = buildExecutionPolicy({ existingPolicy, stageValues: { review: [`agent:${AGENT_ID}`], approval: [] } });
     expect(issueExecutionPolicySchema.safeParse(policy).success).toBe(true);
     expect(policy).toMatchObject(before);
     expect(stageParticipantValues(policy, "review")).toEqual([`agent:${AGENT_ID}`]);
@@ -137,7 +173,7 @@ describe("buildExecutionPolicy", () => {
       ] }],
     };
     const policy = buildExecutionPolicy({
-      existingPolicy, reviewerValues: [`agent:${AGENT_ID}`, "user:board-reviewer"], approverValues: [],
+      existingPolicy, stageValues: { review: [`agent:${AGENT_ID}`, "user:board-reviewer"], approval: [] },
     });
     expect(policy).toMatchObject({
       authorizationPolicy: existingPolicy.authorizationPolicy,
@@ -155,7 +191,7 @@ describe("buildExecutionPolicy", () => {
       mode: "normal", commentRequired: true, stages: [],
       authorizationPolicy: { trustPreset: "standard" },
     } as IssueExecutionPolicy;
-    expect(buildExecutionPolicy({ existingPolicy, reviewerValues: [], approverValues: [] }))
+    expect(buildExecutionPolicy({ existingPolicy, stageValues: { review: [], approval: [] } }))
       .toEqual(existingPolicy);
   });
 
@@ -165,21 +201,21 @@ describe("buildExecutionPolicy", () => {
       { id: PARTICIPANT_ID, type: "user", userId: "board-reviewer" },
     ] }] },
   ])("retains an independent review-round limit when no participants remain: %j", (existingPolicy) => {
-    expect(buildExecutionPolicy({ existingPolicy: existingPolicy as IssueExecutionPolicy, reviewerValues: [], approverValues: [] }))
+    expect(buildExecutionPolicy({ existingPolicy: existingPolicy as IssueExecutionPolicy, stageValues: { review: [], approval: [] } }))
       .toEqual({ mode: "normal", commentRequired: true, stages: [], maxReviewRounds: 4 });
   });
 
   it("still clears a policy with no participants, monitor, or other settings", () => {
     expect(buildExecutionPolicy({
       existingPolicy: { mode: "normal", commentRequired: true, stages: [] },
-      reviewerValues: [], approverValues: [],
+      stageValues: { review: [], approval: [] },
     })).toBeNull();
   });
 
   it.each([{ stages: {} }, { stages: [null] }, { stages: [{ type: "review", participants: {} }] }])(
     "refuses to manufacture a replacement for a malformed policy: %j", (input) => {
       expect(() => buildExecutionPolicy({ existingPolicy: input as unknown as IssueExecutionPolicy,
-        reviewerValues: [], approverValues: [] })).toThrow();
+        stageValues: { review: [], approval: [] } })).toThrow();
     },
   );
 });

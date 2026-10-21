@@ -184,6 +184,7 @@ const ISSUE_RESPONSIBLE_USER_WAKE_REASONS = new Set([
   "issue_recovery_action_restored",
   "execution_review_requested",
   "execution_approval_requested",
+  "execution_git_requested",
   "execution_changes_requested",
   "approval_approved",
 ]);

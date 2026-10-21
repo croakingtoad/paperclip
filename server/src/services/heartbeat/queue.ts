@@ -286,6 +286,7 @@ export function shouldRequireIssueCommentForWake(
     wakeReason === "issue_assigned" ||
     wakeReason === "execution_review_requested" ||
     wakeReason === "execution_approval_requested" ||
+    wakeReason === "execution_git_requested" ||
     wakeReason === "execution_changes_requested"
   );
 }

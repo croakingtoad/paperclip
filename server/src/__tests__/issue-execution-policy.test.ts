@@ -71,7 +71,7 @@ describe("normalizeIssueExecutionPolicy", () => {
       maxReviewRounds: 4,
       stages: [{ type: "review", participants: [{ type: "agent", agentId: qaAgentId }] }],
     });
-    const edited = buildExecutionPolicy({ existingPolicy: original, reviewerValues: [], approverValues: [] });
+    const edited = buildExecutionPolicy({ existingPolicy: original, stageValues: { review: [], approval: [] } });
     const saved = normalizeIssueExecutionPolicy(edited);
     expect(saved).toEqual({ mode: "normal", commentRequired: true, stages: [], maxReviewRounds: 4 });
     expect(applyIssueExecutionPolicyTransition({
@@ -79,7 +79,7 @@ describe("normalizeIssueExecutionPolicy", () => {
       policy: saved, requestedStatus: "done", requestedAssigneePatch: {}, actor: { agentId: coderAgentId },
     })).toEqual({ patch: {} });
     expect(normalizeIssueExecutionPolicy(buildExecutionPolicy({
-      existingPolicy: saved, reviewerValues: [`agent:${qaAgentId}`], approverValues: [],
+      existingPolicy: saved, stageValues: { review: [`agent:${qaAgentId}`], approval: [] },
     }))).toMatchObject({ maxReviewRounds: 4, stages: [{ type: "review" }] });
   });
 

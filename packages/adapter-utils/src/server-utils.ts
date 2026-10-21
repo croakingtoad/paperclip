@@ -540,7 +540,7 @@ type PaperclipWakeExecutionPrincipal = {
 };
 
 type PaperclipWakeExecutionStage = {
-  wakeRole: "reviewer" | "approver" | "executor" | null;
+  wakeRole: "reviewer" | "approver" | "executor" | "git" | null;
   stageId: string | null;
   stageType: string | null;
   currentParticipant: PaperclipWakeExecutionPrincipal | null;
@@ -1594,7 +1594,8 @@ function normalizePaperclipWakeExecutionStage(
   const wakeRole =
     wakeRoleRaw === "reviewer" ||
     wakeRoleRaw === "approver" ||
-    wakeRoleRaw === "executor"
+    wakeRoleRaw === "executor" ||
+    wakeRoleRaw === "git"
       ? wakeRoleRaw
       : null;
   const allowedActions = Array.isArray(stage.allowedActions)
@@ -2987,6 +2988,16 @@ function renderPaperclipWakePromptBody(
         "A Paperclip Runner run cannot hand the task back itself; to request changes from one, report the required changes as a blocker with paperclip_block.",
         "A run completion report does not record the decision; record it before you report.",
         "If you request changes, the workflow routes back to the stored return assignee.",
+        "",
+      );
+    } else if (executionStage.wakeRole === "git") {
+      lines.push(
+        "You are waking as the git owner for this issue.",
+        "The work is finished and waiting on you; perform the repository actions for it",
+        "(commit, push, open or merge the pull request) in the issue's execution workspace.",
+        "Approve with a comment when the repository work is complete — that advances the",
+        "issue past this stage. If the work is not mergeable, request changes instead and",
+        "the workflow routes back to the stored return assignee.",
         "",
       );
     } else if (executionStage.wakeRole === "executor") {

@@ -1088,9 +1088,13 @@ function AccountNewIssueDialog({ ignoreDefaults }: { ignoreDefaults: boolean }) 
       !workspaceIsolationControlsVisible && newIssueDefaults.projectId === projectId
         ? newIssueDefaults.executionWorkspaceId
         : undefined;
+    // The create dialog offers review and approval only; the git slot is set from the
+    // Execution area on an existing issue.
     const executionPolicy = buildExecutionPolicy({
-      reviewerValues: reviewerValue ? [reviewerValue] : [],
-      approverValues: approverValue ? [approverValue] : [],
+      stageValues: {
+        review: reviewerValue ? [reviewerValue] : [],
+        approval: approverValue ? [approverValue] : [],
+      },
     });
     const assigneeAdapterOverrides = settings
       ? mergeComposerRunSettings(inheritedOverrides, assigneeAdapterType ?? undefined, settings)
