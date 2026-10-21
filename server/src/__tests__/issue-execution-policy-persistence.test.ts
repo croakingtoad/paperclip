@@ -27,7 +27,7 @@ const support = await getEmbeddedPostgresTestSupport();
     });
     await db.insert(companies).values({ id: companyId, name: "Policy fixture", issuePrefix: `P${companyId.slice(0, 6)}` });
     await db.insert(issues).values({ id: issueId, companyId, title: "Review limit fixture", executionPolicy: original as Record<string, unknown> | null });
-    const edited = buildExecutionPolicy({ existingPolicy: original, reviewerValues: [], approverValues: [] })!;
+    const edited = buildExecutionPolicy({ existingPolicy: original, stageValues: { review: [], approval: [] } })!;
     // The monitor editor removes this key after building the unchanged stages.
     const { monitor: _removedMonitor, ...withoutMonitor } = edited;
     const normalized = normalizeIssueExecutionPolicy(removed === "monitor" ? withoutMonitor : edited);
@@ -38,7 +38,7 @@ const support = await getEmbeddedPostgresTestSupport();
 
     const restored = normalizeIssueExecutionPolicy(buildExecutionPolicy({
       existingPolicy: normalizeIssueExecutionPolicy(saved?.executionPolicy),
-      reviewerValues: ["user:board-reviewer"], approverValues: [],
+      stageValues: { review: ["user:board-reviewer"], approval: [] },
     }));
     expect(restored).toMatchObject({ maxReviewRounds: 4, stages: [{ type: "review" }] });
   });
