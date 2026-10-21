@@ -566,7 +566,7 @@ describe("issue execution policy transitions", () => {
           actor: { agentId: coderAgentId },
           commentBody: "Trying to bypass review",
         }),
-      ).toThrow("Only the active reviewer or approver can advance");
+      ).toThrow("Only the active stage participant can advance");
     });
 
     it("board override can cancel an active review without recording an approval decision", () => {
