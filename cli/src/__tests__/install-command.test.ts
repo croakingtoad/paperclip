@@ -124,6 +124,9 @@ describe("managed install commands", () => {
           fs.mkdirSync(path.join(checkout, workspacePackage.dir), { recursive: true });
           fs.writeFileSync(path.join(checkout, workspacePackage.dir, "package.json"), JSON.stringify(workspacePackage.packageJson));
         }
+        fs.mkdirSync(path.join(checkout, "skills"), { recursive: true });
+        fs.mkdirSync(path.join(checkout, "packages/adapters/claude-local"), { recursive: true });
+        fs.mkdirSync(path.join(checkout, "packages/adapters/codex-local"), { recursive: true });
         return { stdout: "", stderr: "" };
       }
       if (file === "corepack") {
@@ -137,7 +140,7 @@ describe("managed install commands", () => {
       }
       if (file === "bash") return { stdout: "", stderr: "" };
       if (file === "npm" && args[0] === "pack") {
-        const packageName = args[1]?.includes("workspace-package-") ? "paperclipai-db" : "paperclipai";
+        const packageName = args.some(a => a.includes("workspace-package-")) ? "paperclipai-db" : "paperclipai";
         fs.writeFileSync(path.join(args[args.indexOf("--pack-destination") + 1], `${packageName}-0.3.1.tgz`), "package");
         return { stdout: "", stderr: "" };
       }
@@ -178,7 +181,8 @@ describe("managed install commands", () => {
       file === "corepack" ||
       (file === "npm" && args[0] === "pack") ||
       (file === process.execPath && args[0]?.endsWith("prepare-bundled-package.mjs")));
-    expect(buildCalls).toHaveLength(9);
+    expect(buildCalls).toHaveLength(10);
+    expect(buildCalls.some(([f, a]) => f === "bash" && Array.isArray(a) && a.includes("scripts/prepare-server-ui-dist.sh"))).toBe(true);
     for (const call of buildCalls) {
       const env = call[2]?.env;
       expect(env, `${call[0]} ${call[1].join(" ")} must run with an explicit env`).toBeDefined();
@@ -186,6 +190,15 @@ describe("managed install commands", () => {
     }
     const uiPackCall = buildCalls.find(([file, , options]) => file === "corepack" && options?.env?.PAPERCLIP_RELEASE_REUSE_UI_DIST === "1");
     expect(uiPackCall).toBeDefined();
+  });
+
+  it("passes --ignore-scripts to npm pack for bundled workspace packages", async () => {
+    const sha = "e".repeat(40);
+    const runCommand = createGitCheckoutRunCommand(sha);
+    await installGitPayload("paperclipai/paperclip", sha, runCommand, resolveInstallStorePaths());
+    const bundledPackCall = runCommand.mock.calls.find(([file, args]) =>
+      file === "npm" && args[0] === "pack" && args.some((a) => a.includes("workspace-package-")));
+    expect(bundledPackCall?.[1]).toContain("--ignore-scripts");
   });
 
   it("resolves the complete server workspace dependency closure in dependency order", () => {

@@ -7,7 +7,21 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
-export function materializePublishManifest(pkg) {
+function buildWorkspaceVersionResolver(sourceRoot) {
+  try {
+    const manifest = JSON.parse(readFileSync(resolve(sourceRoot, "scripts", "release-package-manifest.json"), "utf8"));
+    const map = new Map();
+    for (const { dir, name } of manifest) {
+      try {
+        const pkg = JSON.parse(readFileSync(resolve(sourceRoot, dir, "package.json"), "utf8"));
+        if (typeof pkg.version === "string") map.set(name, pkg.version);
+      } catch { /* skip unreadable packages */ }
+    }
+    return (name) => map.get(name);
+  } catch { return null; }
+}
+
+export function materializePublishManifest(pkg, resolveWorkspaceVersion = null) {
   const publishConfig = pkg.publishConfig ?? {};
   const publishManifest = { ...pkg };
 
@@ -22,7 +36,8 @@ export function materializePublishManifest(pkg) {
         if (typeof specifier !== "string" || !specifier.startsWith("workspace:")) return [name, specifier];
         const range = specifier.slice("workspace:".length);
         const prefix = range === "^" || range === "~" ? range : "";
-        return [name, `${prefix}${pkg.version}`];
+        const resolvedVersion = resolveWorkspaceVersion ? (resolveWorkspaceVersion(name) ?? pkg.version) : pkg.version;
+        return [name, `${prefix}${resolvedVersion}`];
       }),
     );
   }
@@ -156,7 +171,8 @@ export function prepareBundledPackage(sourceDir, destinationDir, { sourceRoot = 
   }
 
   const deployedPackagePath = resolve(destinationDir, "package.json");
-  const publishManifest = materializePublishManifest(sourcePackage);
+  const resolveWorkspaceVersion = buildWorkspaceVersionResolver(sourceRoot);
+  const publishManifest = materializePublishManifest(sourcePackage, resolveWorkspaceVersion);
   const installManifest = createBundledInstallManifest(publishManifest, bundledDependencies);
   writeFileSync(deployedPackagePath, `${JSON.stringify(installManifest, null, 2)}\n`);
 
