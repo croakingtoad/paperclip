@@ -463,6 +463,22 @@ test("bundled package staging materializes workspace dependency versions", () =>
   });
 });
 
+test("bundled package staging uses dependency own version not depending package version", () => {
+  const resolver = (name) => name === "@paperclipai/plugin-sdk" ? "1.0.0" : undefined;
+  const staged = materializePublishManifest({
+    name: "@paperclipai/server",
+    version: "0.3.1",
+    dependencies: {
+      "@paperclipai/plugin-sdk": "workspace:^",
+      "@paperclipai/shared": "workspace:*"
+    },
+  }, resolver);
+  // plugin-sdk resolves to 1.0.0 (its own version), not 0.3.1 (server's version)
+  assert.equal(staged.dependencies["@paperclipai/plugin-sdk"], "^1.0.0");
+  // shared falls back to pkg.version when resolver returns undefined
+  assert.equal(staged.dependencies["@paperclipai/shared"], "0.3.1");
+});
+
 test("bundled package staging installs only dependencies included in the tarball", () => {
   const publishManifest = {
     name: "@paperclipai/db",

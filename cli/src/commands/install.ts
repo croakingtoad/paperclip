@@ -147,7 +147,7 @@ async function runGitHubCurl(
   // Anonymous GitHub requests are rate-limited per source IP (CI runners and
   // corporate NAT exhaust the shared quota); honor an ambient token when present.
   // The token travels via a curl --config file so it never appears in process args.
-  const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN;
+  const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN ?? process.env.PAPERCLIP_GIT_TOKEN;
   if (!token) return runCommand("curl", args, options);
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "paperclipai-gh-"));
   const configFile = path.join(configDir, "headers");
@@ -236,6 +236,15 @@ export async function installNpmPayload(
   }
 }
 
+function findPnpmOnPath(): string | null {
+  const pathDirs = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  for (const dir of pathDirs) {
+    const candidate = path.join(dir, "pnpm");
+    try { fs.accessSync(candidate, fs.constants.X_OK); return candidate; } catch { /* continue */ }
+  }
+  return null;
+}
+
 function gitBuildEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   const env = { ...process.env, ...extra };
   // Source builds need devDependencies (esbuild, typescript); ambient NODE_ENV=production
@@ -276,10 +285,24 @@ export async function installGitPayload(repo: string, sha: string, runCommand: C
   try {
     await runGitHubCurl(["--fail", "--silent", "--show-error", "--location", "--output", archivePath, `https://codeload.github.com/${repo}/tar.gz/${sha}`], runCommand, { maxBuffer: 4 * 1024 * 1024 });
     await runCommand("tar", ["-xzf", archivePath, "--strip-components=1", "-C", checkoutPath], { maxBuffer: 4 * 1024 * 1024 });
-    await runCommand("corepack", ["enable", "pnpm", "--install-directory", pnpmShimDir], { cwd: checkoutPath, env: buildEnv(), maxBuffer: 4 * 1024 * 1024 });
-    await runCommand("corepack", ["pnpm", "install", "--frozen-lockfile"], { cwd: checkoutPath, env: buildEnv(), maxBuffer: 32 * 1024 * 1024 });
+    const pnpmOnPath = findPnpmOnPath();
+    if (pnpmOnPath !== null) {
+      fs.symlinkSync(pnpmOnPath, path.join(pnpmShimDir, "pnpm"));
+    } else {
+      await runCommand("corepack", ["enable", "pnpm", "--install-directory", pnpmShimDir], { cwd: checkoutPath, env: buildEnv(), maxBuffer: 4 * 1024 * 1024 });
+    }
+    const pnpmCmd = pnpmOnPath !== null ? "pnpm" : "corepack";
+    const pnpmCmdPrefix: string[] = pnpmOnPath !== null ? [] : ["pnpm"];
+    await runCommand(pnpmCmd, [...pnpmCmdPrefix, "install", "--frozen-lockfile"], { cwd: checkoutPath, env: buildEnv(), maxBuffer: 32 * 1024 * 1024 });
     await runCommand("bash", ["scripts/build-npm.sh", "--skip-checks", "--skip-typecheck"], { cwd: checkoutPath, env: buildEnv(), maxBuffer: 32 * 1024 * 1024 });
-    await runCommand("corepack", ["pnpm", "-r", "--filter", "@paperclipai/server...", "--if-present", "run", "build"], { cwd: checkoutPath, env: buildEnv(), maxBuffer: 32 * 1024 * 1024 });
+    await runCommand(pnpmCmd, [...pnpmCmdPrefix, "-r", "--filter", "@paperclipai/server...", "--if-present", "run", "build"], { cwd: checkoutPath, env: buildEnv(), maxBuffer: 32 * 1024 * 1024 });
+    await runCommand("bash", ["scripts/prepare-server-ui-dist.sh"], { cwd: checkoutPath, env: buildEnv({ PAPERCLIP_RELEASE_REUSE_UI_DIST: "1" }), maxBuffer: 32 * 1024 * 1024 });
+    const skillsSource = path.join(checkoutPath, "skills");
+    for (const dir of ["server", "packages/adapters/claude-local", "packages/adapters/codex-local"]) {
+      const target = path.join(checkoutPath, dir, "skills");
+      fs.rmSync(target, { recursive: true, force: true });
+      fs.cpSync(skillsSource, target, { recursive: true });
+    }
     const metadata = JSON.parse(fs.readFileSync(path.join(checkoutPath, "cli", "package.json"), "utf8")) as { version: string };
     const workspacePackages = resolveGitInstallWorkspacePackages(checkoutPath);
     for (const [index, workspacePackage] of workspacePackages.entries()) {
@@ -289,9 +312,9 @@ export async function installGitPayload(repo: string, sha: string, runCommand: C
       if (bundledDependencies.length > 0) {
         const stagedPackage = path.join(stagingRoot, `workspace-package-${index}`);
         await runCommand(process.execPath, [path.join(checkoutPath, "scripts", "prepare-bundled-package.mjs"), packageDir, stagedPackage], { cwd: checkoutPath, env: buildEnv(), maxBuffer: 32 * 1024 * 1024 });
-        await runCommand("npm", ["pack", stagedPackage, "--pack-destination", stagingRoot], { cwd: checkoutPath, env: buildEnv(), maxBuffer: 16 * 1024 * 1024 });
+        await runCommand("npm", ["pack", "--ignore-scripts", stagedPackage, "--pack-destination", stagingRoot], { cwd: checkoutPath, env: buildEnv(), maxBuffer: 16 * 1024 * 1024 });
       } else {
-        await runCommand("corepack", ["pnpm", "--dir", workspacePackage.dir, "pack", "--pack-destination", stagingRoot], { cwd: checkoutPath, env: buildEnv({ PAPERCLIP_RELEASE_REUSE_UI_DIST: "1" }), maxBuffer: 32 * 1024 * 1024 });
+        await runCommand(pnpmCmd, [...pnpmCmdPrefix, "--dir", workspacePackage.dir, "pack", "--pack-destination", stagingRoot], { cwd: checkoutPath, env: buildEnv({ PAPERCLIP_RELEASE_REUSE_UI_DIST: "1" }), maxBuffer: 32 * 1024 * 1024 });
       }
     }
     await runCommand("npm", ["pack", "--pack-destination", stagingRoot], { cwd: path.join(checkoutPath, "cli"), env: buildEnv(), maxBuffer: 16 * 1024 * 1024 });
