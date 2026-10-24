@@ -267,4 +267,30 @@ describeEmbeddedPostgres("POST /api/issues/:id/transfer-to-company", () => {
       .where(and(eq(issueRelations.type, "transfer"), eq(issueRelations.issueId, sourceIssueId)));
     expect(stray).toHaveLength(0);
   });
+
+  it("is idempotent: a retried POST returns the same issue, not a second one", async () => {
+    const source = await seedCompany("SRI");
+    const target = await seedCompany("DSI");
+    const sourceIssueId = await seedSourceIssue(source, 1);
+    const app = createApp([source.companyId, target.companyId]);
+    const body = { targetCompanyId: target.companyId, targetProjectId: target.projectId };
+
+    const first = await request(app)
+      .post(`/api/issues/${sourceIssueId}/transfer-to-company`)
+      .send(body);
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+
+    const second = await request(app)
+      .post(`/api/issues/${sourceIssueId}/transfer-to-company`)
+      .send(body);
+    expect(second.status, JSON.stringify(second.body)).toBe(201);
+    expect(second.body.id).toBe(first.body.id);
+    expect(second.body.identifier).toBe(first.body.identifier);
+
+    const allInTarget = await db
+      .select({ id: issues.id })
+      .from(issues)
+      .where(eq(issues.companyId, target.companyId));
+    expect(allInTarget).toHaveLength(1);
+  });
 });
