@@ -14,6 +14,20 @@ const companies = vi.hoisted(() => [
 const pushToast = vi.hoisted(() => vi.fn());
 const transferToCompany = vi.hoisted(() => vi.fn());
 const listProjects = vi.hoisted(() => vi.fn());
+const getCurrentBoardAccess = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({
+    isInstanceAdmin: false,
+    companyIds: ["company-1", "company-2"],
+    memberships: [
+      { companyId: "company-1", membershipRole: "owner", status: "active" },
+      { companyId: "company-2", membershipRole: "member", status: "active" },
+    ],
+    source: "session",
+    keyId: null,
+    userId: "user-1",
+    user: null,
+  }),
+);
 
 vi.mock("../context/CompanyContext", () => ({
   useCompany: () => ({ companies }),
@@ -26,6 +40,9 @@ vi.mock("../api/issues", () => ({
 }));
 vi.mock("../api/projects", () => ({
   projectsApi: { list: listProjects },
+}));
+vi.mock("../api/access", () => ({
+  accessApi: { getCurrentBoardAccess },
 }));
 
 // Radix Select leans on Pointer Capture APIs jsdom omits.
