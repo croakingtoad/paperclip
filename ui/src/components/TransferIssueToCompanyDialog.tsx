@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { accessApi } from "../api/access";
 import { issuesApi } from "../api/issues";
 import { projectsApi } from "../api/projects";
 import { useCompany } from "../context/CompanyContext";
@@ -25,13 +26,27 @@ import { queryKeys } from "../lib/queryKeys";
 
 /**
  * The companies this board user can hand a task to: every company they belong
- * to except the one the task already lives in, minus archived ones.
+ * to except the one the task already lives in, minus archived ones, minus
+ * companies where the user's role is viewer-only.
  */
 export function useTransferTargetCompanies(sourceCompanyId: string | null | undefined) {
   const { companies } = useCompany();
-  return companies.filter(
-    (company) => company.id !== sourceCompanyId && company.status !== "archived",
-  );
+  const { data: boardAccess } = useQuery({
+    queryKey: queryKeys.access.currentBoardAccess,
+    queryFn: () => accessApi.getCurrentBoardAccess(),
+  });
+
+  if (!sourceCompanyId) return [];
+
+  return companies.filter((company) => {
+    if (company.id === sourceCompanyId) return false;
+    if (company.status === "archived") return false;
+    if (boardAccess?.memberships) {
+      const m = boardAccess.memberships.find((m) => m.companyId === company.id);
+      if (m?.membershipRole === "viewer") return false;
+    }
+    return true;
+  });
 }
 
 export function TransferIssueToCompanyDialog({
