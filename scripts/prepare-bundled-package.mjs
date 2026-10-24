@@ -18,7 +18,9 @@ function buildWorkspaceVersionResolver(sourceRoot) {
       } catch { /* skip unreadable packages */ }
     }
     return (name) => map.get(name);
-  } catch { return null; }
+  } catch (err) {
+    throw new Error(`Failed to read release-package-manifest.json: ${err.message}`);
+  }
 }
 
 export function materializePublishManifest(pkg, resolveWorkspaceVersion = null) {
