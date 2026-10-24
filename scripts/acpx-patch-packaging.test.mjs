@@ -21,6 +21,7 @@ import { bundledCliNpmDependencies } from "./cli-bundled-npm-dependencies.mjs";
 import {
   createBundledInstallManifest,
   materializePublishManifest,
+  prepareBundledPackage,
   selectBundledDependencyPatches,
 } from "./prepare-bundled-package.mjs";
 
@@ -441,6 +442,24 @@ test("npm builds use corepack instead of requiring a global pnpm", () => {
   assert.doesNotMatch(buildNpmScript, /^\s*pnpm -r typecheck/m);
 });
 
+
+test("buildWorkspaceVersionResolver throws when release-package-manifest.json is absent", (t) => {
+  const tempDir = mkdtempSync(join(tmpdir(), "paperclip-missing-release-manifest-"));
+  const sourceDir = join(tempDir, "source");
+  const destinationDir = join(tempDir, "destination");
+  mkdirSync(sourceDir, { recursive: true });
+  writeFileSync(
+    join(sourceDir, "package.json"),
+    JSON.stringify({ name: "@paperclipai/example", version: "1.0.0", bundleDependencies: ["acpx"] }),
+  );
+  t.after(() => rmSync(tempDir, { recursive: true, force: true }));
+
+  // sourceRoot has no scripts/release-package-manifest.json — must throw
+  assert.throws(
+    () => prepareBundledPackage(sourceDir, destinationDir, { sourceRoot: tempDir }),
+    /Failed to read release-package-manifest\.json/,
+  );
+});
 
 test("installed ACPX runtime persists and restores optional goal capabilities", () => {
   const requireRunner = createRequire(new URL("../packages/paperclip-runner/package.json", import.meta.url));
