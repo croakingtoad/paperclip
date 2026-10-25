@@ -3,9 +3,10 @@ import type { Db } from "@paperclipai/db";
 import { generateSummarySlotSchema, writeSummarySlotSchema } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
 import { forbidden, notFound } from "../errors.js";
-import { accessService, heartbeatService, instanceSettingsService, logActivity } from "../services/index.js";
+import { accessService, agentService, heartbeatService, instanceSettingsService, logActivity } from "../services/index.js";
 import { queueIssueAssignmentWakeup } from "../services/issue-assignment-wakeup.js";
-import { summarySlotService } from "../services/summary-slots.js";
+import { summarySlotService, SUMMARIZER_BUILT_IN_KEY } from "../services/summary-slots.js";
+import { readBuiltInAgentMarker } from "../services/built-in-agent-metadata.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 
 function readScopeId(req: Request): string | null {
@@ -26,6 +27,7 @@ export function summarySlotSessionTaskKey(input: {
 export function summarySlotRoutes(db: Db) {
   const router = Router();
   const access = accessService(db);
+  const agents = agentService(db);
   const settings = instanceSettingsService(db);
   const svc = summarySlotService(db);
   const heartbeat = heartbeatService(db);
@@ -37,9 +39,18 @@ export function summarySlotRoutes(db: Db) {
     }
   }
 
-  /** Manual generate is a board/user action; agents cannot trigger it. */
+  /**
+   * Board operators and the Summarizer built-in agent may trigger generation.
+   * The Summarizer needs this so the refresh-stale-summaries routine can mint
+   * a proper generation task per stale slot (satisfying assertSummarizerWriter).
+   */
   async function assertCanGenerateSummary(req: Request, companyId: string) {
     assertCompanyAccess(req, companyId);
+    if (req.actor.type === "agent" && req.actor.agentId) {
+      const agent = await agents.getById(req.actor.agentId);
+      const marker = agent ? readBuiltInAgentMarker(agent.metadata) : null;
+      if (marker?.key === SUMMARIZER_BUILT_IN_KEY && agent?.companyId === companyId) return;
+    }
     if (req.actor.type !== "board") {
       throw forbidden("Only board operators can generate summaries.");
     }

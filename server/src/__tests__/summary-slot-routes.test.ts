@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const companyId = "22222222-2222-4222-8222-222222222222";
 const otherCompanyId = "33333333-3333-4333-8333-333333333333";
 const agentId = "11111111-1111-4111-8111-111111111111";
+const summarizerAgentId = "77777777-7777-4777-8777-777777777777";
 const projectId = "44444444-4444-4444-8444-444444444444";
 const slotId = "55555555-5555-4555-8555-555555555555";
 const generatingIssueId = "66666666-6666-4666-8666-666666666666";
@@ -12,6 +13,10 @@ const generatingIssueId = "66666666-6666-4666-8666-666666666666";
 const mockAccessService = vi.hoisted(() => ({
   decide: vi.fn(),
   canUser: vi.fn(),
+}));
+
+const mockAgentService = vi.hoisted(() => ({
+  getById: vi.fn(),
 }));
 
 const mockInstanceSettingsService = vi.hoisted(() => ({
@@ -59,15 +64,39 @@ function generatingIssue(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function makeSummarizerAgentRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: summarizerAgentId,
+    companyId,
+    name: "Summarizer",
+    metadata: { paperclipBuiltInAgent: { key: "summarizer", featureKeys: ["summarizer"] } },
+    ...overrides,
+  };
+}
+
 function registerModuleMocks() {
   vi.doMock("../services/index.js", () => ({
     accessService: () => mockAccessService,
+    agentService: () => mockAgentService,
     heartbeatService: () => ({ wakeup: mockHeartbeatWakeup }),
     instanceSettingsService: () => mockInstanceSettingsService,
     logActivity: mockLogActivity,
   }));
   vi.doMock("../services/summary-slots.js", () => ({
     summarySlotService: () => mockSummarySlotService,
+    SUMMARIZER_BUILT_IN_KEY: "summarizer",
+  }));
+  vi.doMock("../services/built-in-agent-metadata.js", () => ({
+    readBuiltInAgentMarker: (metadata: unknown) => {
+      if (
+        metadata &&
+        typeof metadata === "object" &&
+        "paperclipBuiltInAgent" in metadata
+      ) {
+        return (metadata as Record<string, unknown>).paperclipBuiltInAgent;
+      }
+      return null;
+    },
   }));
 }
 
@@ -103,6 +132,14 @@ const agentActor = {
   runId: "run-123",
 };
 
+const summarizerActor = {
+  type: "agent",
+  agentId: summarizerAgentId,
+  companyId,
+  source: "agent_jwt",
+  runId: "run-456",
+};
+
 const slotPath = `/api/companies/${companyId}/summary-slots/project/header?scopeId=${projectId}`;
 
 describe("summary slot routes", () => {
@@ -112,6 +149,10 @@ describe("summary slot routes", () => {
     vi.clearAllMocks();
     mockAccessService.decide.mockResolvedValue({ allowed: true, explanation: "Allowed." });
     mockAccessService.canUser.mockResolvedValue(true);
+    mockAgentService.getById.mockImplementation(async (id: string) => {
+      if (id === summarizerAgentId) return makeSummarizerAgentRow();
+      return { id, companyId, name: "Coder", metadata: null };
+    });
     mockInstanceSettingsService.getExperimental.mockResolvedValue({ enableSummaries: true });
     mockHeartbeatWakeup.mockResolvedValue({ id: "run-1" });
     mockSummarySlotService.getSlot.mockResolvedValue({ slot: slot(), document: null, generatingIssue: null });
@@ -227,13 +268,26 @@ describe("summary slot routes", () => {
       expect(mockSummarySlotService.generate).not.toHaveBeenCalled();
     });
 
-    it("denies generate for agent actors", async () => {
+    it("denies generate for non-Summarizer agent actors", async () => {
       const app = await createApp(agentActor);
       const res = await request(app).post(
         `/api/companies/${companyId}/summary-slots/project/header/generate`,
       ).send({});
       expect(res.status, JSON.stringify(res.body)).toBe(403);
       expect(mockSummarySlotService.generate).not.toHaveBeenCalled();
+    });
+
+    it("allows the Summarizer built-in agent to create a generation task", async () => {
+      const app = await createApp(summarizerActor);
+      const res = await request(app).post(
+        `/api/companies/${companyId}/summary-slots/project/header/generate`,
+      ).send({ scopeId: projectId });
+      expect(res.status, JSON.stringify(res.body)).toBe(202);
+      expect(res.body.alreadyGenerating).toBe(false);
+      expect(mockSummarySlotService.generate).toHaveBeenCalledWith(
+        { companyId, scopeKind: "project", slotKey: "header", scopeId: projectId },
+        expect.objectContaining({ agentId: summarizerAgentId }),
+      );
     });
 
     it("returns 404 when the summaries flag is disabled", async () => {
