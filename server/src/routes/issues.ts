@@ -12400,54 +12400,73 @@ export function issueRoutes(
 
       const actor = getActorInfo(req);
       const createdByUserId = actor.actorType === "user" ? actor.actorId : null;
-      const transferred = await svc.create(targetCompanyId, {
-        title: source.title,
-        description: source.description,
-        projectId: targetProjectId,
-        priority: source.priority,
-        createdByUserId,
-        actorRunId: actor.runId,
-        allowDuplicate: true,
+      const sourceLabel = source.identifier ?? source.id;
+      let replayed = false;
+      const transferred = await db.transaction(async (tx) => {
+        const created = await svc.create(targetCompanyId, {
+          title: source.title,
+          description: source.description,
+          projectId: targetProjectId,
+          priority: source.priority,
+          createdByUserId,
+          actorRunId: actor.runId,
+          idempotencyKey: `transfer:${source.id}:${targetProjectId}`,
+          onDeduplicated: () => {
+            replayed = true;
+          },
+        }, tx);
+
+        // A retry of a transfer that already committed. The first call wrote the
+        // documents and both relation rows in this same transaction, so there is
+        // nothing left to copy — and re-upserting an existing document without a
+        // baseRevisionId is a 409, which would turn a harmless retry into a 409
+        // that never tells the caller the transferred issue's id.
+        if (replayed) return created;
+
+        // Named documents only — system documents are server-owned bookkeeping for
+        // the run that produced them and mean nothing on the copy.
+        const docsSvc = documentService(tx as unknown as Db);
+        for (const doc of await documentsSvc.listIssueDocuments(source.id)) {
+          await docsSvc.upsertIssueDocument({
+            issueId: created.id,
+            key: doc.key,
+            title: doc.title,
+            format: doc.format,
+            body: doc.body ?? "",
+            changeSummary: `Copied from ${sourceLabel}`,
+            createdByUserId,
+          });
+        }
+
+        // One row per side, each scoped to its own company: issue_relations is
+        // company-scoped, so a single row would be invisible from the other end.
+        await tx
+          .insert(issueRelations)
+          .values([
+            {
+              companyId: source.companyId,
+              issueId: source.id,
+              relatedIssueId: created.id,
+              type: "transfer" as const,
+              createdByUserId,
+            },
+            {
+              companyId: targetCompanyId,
+              issueId: created.id,
+              relatedIssueId: source.id,
+              type: "transfer" as const,
+              createdByUserId,
+            },
+          ])
+          .onConflictDoNothing();
+
+        return created;
       });
 
-      const sourceLabel = source.identifier ?? source.id;
-      // Named documents only — system documents are server-owned bookkeeping for
-      // the run that produced them and mean nothing on the copy.
-      for (const doc of await documentsSvc.listIssueDocuments(source.id)) {
-        await documentsSvc.upsertIssueDocument({
-          issueId: transferred.id,
-          key: doc.key,
-          title: doc.title,
-          format: doc.format,
-          body: doc.body ?? "",
-          changeSummary: `Copied from ${sourceLabel}`,
-          createdByUserId,
-        });
-      }
-
-      // One row per side, each scoped to its own company: issue_relations is
-      // company-scoped, so a single row would be invisible from the other end.
-      await db
-        .insert(issueRelations)
-        .values([
-          {
-            companyId: source.companyId,
-            issueId: source.id,
-            relatedIssueId: transferred.id,
-            type: "transfer" as const,
-            createdByUserId,
-          },
-          {
-            companyId: targetCompanyId,
-            issueId: transferred.id,
-            relatedIssueId: source.id,
-            type: "transfer" as const,
-            createdByUserId,
-          },
-        ])
-        .onConflictDoNothing();
-
-      for (const side of [
+      // Deliberately outside the transaction: an activity-feed write failing is
+      // not a reason to undo a transfer that already committed. A replay logs
+      // nothing — it is the same transfer, not a second one.
+      for (const side of replayed ? [] : [
         { companyId: source.companyId, entityId: source.id },
         { companyId: targetCompanyId, entityId: transferred.id },
       ]) {
