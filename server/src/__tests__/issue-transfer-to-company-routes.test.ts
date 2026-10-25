@@ -267,4 +267,59 @@ describeEmbeddedPostgres("POST /api/issues/:id/transfer-to-company", () => {
       .where(and(eq(issueRelations.type, "transfer"), eq(issueRelations.issueId, sourceIssueId)));
     expect(stray).toHaveLength(0);
   });
+
+  it("is idempotent: a retried POST returns the same issue, not a second one", async () => {
+    const source = await seedCompany("SRI");
+    const target = await seedCompany("DSI");
+    const sourceIssueId = await seedSourceIssue(source, 1);
+    // The source has to carry a document: re-copying one onto the already
+    // transferred issue is what made the retry 409 instead of replaying.
+    const documents = documentService(db);
+    await documents.upsertIssueDocument({
+      issueId: sourceIssueId,
+      key: "plan",
+      title: "Plan",
+      format: "markdown",
+      body: "## Plan\n\nStep one.",
+      createdByUserId: BOARD_USER_ID,
+    });
+    const app = createApp([source.companyId, target.companyId]);
+    const body = { targetCompanyId: target.companyId, targetProjectId: target.projectId };
+
+    const first = await request(app)
+      .post(`/api/issues/${sourceIssueId}/transfer-to-company`)
+      .send(body);
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+
+    const second = await request(app)
+      .post(`/api/issues/${sourceIssueId}/transfer-to-company`)
+      .send(body);
+    expect(second.status, JSON.stringify(second.body)).toBe(201);
+    expect(second.body.id).toBe(first.body.id);
+    expect(second.body.identifier).toBe(first.body.identifier);
+
+    const allInTarget = await db
+      .select({ id: issues.id })
+      .from(issues)
+      .where(eq(issues.companyId, target.companyId));
+    expect(allInTarget).toHaveLength(1);
+
+    // The replay copies nothing a second time: one revision, not two.
+    const copied = await documents.listIssueDocuments(first.body.id as string);
+    expect(copied.map((doc) => doc.key)).toEqual(["plan"]);
+    expect(copied[0].latestRevisionNumber).toBe(1);
+    expect(copied[0].body).toBe("## Plan\n\nStep one.");
+
+    // And the relation pair stays a pair.
+    const links = await db
+      .select({ issueId: issueRelations.issueId })
+      .from(issueRelations)
+      .where(
+        and(
+          eq(issueRelations.type, "transfer"),
+          inArray(issueRelations.issueId, [sourceIssueId, first.body.id as string]),
+        ),
+      );
+    expect(links).toHaveLength(2);
+  });
 });
