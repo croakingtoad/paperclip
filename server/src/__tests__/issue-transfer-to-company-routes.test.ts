@@ -272,6 +272,17 @@ describeEmbeddedPostgres("POST /api/issues/:id/transfer-to-company", () => {
     const source = await seedCompany("SRI");
     const target = await seedCompany("DSI");
     const sourceIssueId = await seedSourceIssue(source, 1);
+    // The source has to carry a document: re-copying one onto the already
+    // transferred issue is what made the retry 409 instead of replaying.
+    const documents = documentService(db);
+    await documents.upsertIssueDocument({
+      issueId: sourceIssueId,
+      key: "plan",
+      title: "Plan",
+      format: "markdown",
+      body: "## Plan\n\nStep one.",
+      createdByUserId: BOARD_USER_ID,
+    });
     const app = createApp([source.companyId, target.companyId]);
     const body = { targetCompanyId: target.companyId, targetProjectId: target.projectId };
 
@@ -292,5 +303,23 @@ describeEmbeddedPostgres("POST /api/issues/:id/transfer-to-company", () => {
       .from(issues)
       .where(eq(issues.companyId, target.companyId));
     expect(allInTarget).toHaveLength(1);
+
+    // The replay copies nothing a second time: one revision, not two.
+    const copied = await documents.listIssueDocuments(first.body.id as string);
+    expect(copied.map((doc) => doc.key)).toEqual(["plan"]);
+    expect(copied[0].latestRevisionNumber).toBe(1);
+    expect(copied[0].body).toBe("## Plan\n\nStep one.");
+
+    // And the relation pair stays a pair.
+    const links = await db
+      .select({ issueId: issueRelations.issueId })
+      .from(issueRelations)
+      .where(
+        and(
+          eq(issueRelations.type, "transfer"),
+          inArray(issueRelations.issueId, [sourceIssueId, first.body.id as string]),
+        ),
+      );
+    expect(links).toHaveLength(2);
   });
 });
