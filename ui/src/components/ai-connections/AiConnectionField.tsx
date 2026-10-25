@@ -75,17 +75,17 @@ export function AiConnectionField({
   routerAdapterType?: string;
 }) {
   const provider = aiProviderForAdapter(adapterType);
-  const isGatewayModel = adapterType === "opencode_local"
+  const couldBeGatewayModel = adapterType === "opencode_local"
     && typeof model === "string"
     && model.length > 0
     && !model.startsWith("openrouter/");
-  const gatewayProviderId = isGatewayModel ? model!.split("/")[0] : null;
+  const gatewayProviderId = couldBeGatewayModel ? model!.split("/")[0] : null;
   const { data: gatewayProviders } = useQuery({
     queryKey: queryKeys.agents.opencodeGatewayProviders(companyId),
     queryFn: () => agentsApi.opencodeGatewayProviders(companyId),
-    enabled: isGatewayModel,
+    enabled: couldBeGatewayModel,
   });
-  const gatewayBaseUrl = gatewayProviders?.find((p) => p.id === gatewayProviderId)?.baseUrl ?? null;
+  const gatewayProvider = gatewayProviders?.find((p) => p.id === gatewayProviderId) ?? null;
   const returnFocus = useRef<HTMLElement | null>(null);
   const restoreFocus = (event: Event) => { event.preventDefault(); returnFocus.current?.focus(); };
   const [adopting, setAdopting] = useState(false);
@@ -166,11 +166,11 @@ export function AiConnectionField({
         </select>
         {value?.mode === "router" && <span className="text-muted-foreground">New tasks rotate. Existing tasks keep their account.</span>}
       </label>}
-      {isGatewayModel && gatewayProviderId && (
+      {gatewayProvider && gatewayProviderId && (
         <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs space-y-0.5">
           <p className="font-medium">Inference gateway: {gatewayProviderId}</p>
-          {gatewayBaseUrl && (
-            <p className="text-muted-foreground font-mono">{gatewayBaseUrl}</p>
+          {gatewayProvider.baseUrl && (
+            <p className="text-muted-foreground font-mono">{gatewayProvider.baseUrl}</p>
           )}
           <p className="text-muted-foreground">Requests route to this gateway. The connection below handles billing and authentication only.</p>
         </div>
@@ -187,7 +187,7 @@ export function AiConnectionField({
         readOnly={readOnly}
         loading={accounts.isPending || accountsView.kind === "reconnecting"}
         error={accountsView.kind === "error" ? describeError(accounts.error).body : undefined}
-        billingOnlyLabel={isGatewayModel}
+        billingOnlyLabel={!!gatewayProvider}
         onChange={(binding) =>
           changeBinding(aiConnectionBindingSchema.parse(binding))
         }
