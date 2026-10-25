@@ -12787,6 +12787,7 @@ export function issueRoutes(
       const actor = getActorInfo(req);
       const createdByUserId = actor.actorType === "user" ? actor.actorId : null;
       const sourceLabel = source.identifier ?? source.id;
+      let replayed = false;
       const transferred = await db.transaction(async (tx) => {
         const created = await svc.create(targetCompanyId, {
           title: source.title,
@@ -12796,7 +12797,17 @@ export function issueRoutes(
           createdByUserId,
           actorRunId: actor.runId,
           idempotencyKey: `transfer:${source.id}:${targetProjectId}`,
+          onDeduplicated: () => {
+            replayed = true;
+          },
         }, tx);
+
+        // A retry of a transfer that already committed. The first call wrote the
+        // documents and both relation rows in this same transaction, so there is
+        // nothing left to copy — and re-upserting an existing document without a
+        // baseRevisionId is a 409, which would turn a harmless retry into a 409
+        // that never tells the caller the transferred issue's id.
+        if (replayed) return created;
 
         // Named documents only — system documents are server-owned bookkeeping for
         // the run that produced them and mean nothing on the copy.
@@ -12838,7 +12849,10 @@ export function issueRoutes(
         return created;
       });
 
-      for (const side of [
+      // Deliberately outside the transaction: an activity-feed write failing is
+      // not a reason to undo a transfer that already committed. A replay logs
+      // nothing — it is the same transfer, not a second one.
+      for (const side of replayed ? [] : [
         { companyId: source.companyId, entityId: source.id },
         { companyId: targetCompanyId, entityId: transferred.id },
       ]) {
