@@ -2293,6 +2293,57 @@ describeEmbeddedPostgres("authorization service", () => {
     });
   });
 
+  it("task_bridge key from company B cannot access company A even when company A key exists in same process", async () => {
+    const companyA = await createCompany(db, "CompanyA");
+    const companyB = await createCompany(db, "CompanyB");
+    const bridgeAgent = await createAgent(db, companyB.id);
+    const parentIssue = await createIssue(db, companyB.id);
+    const actor = {
+      type: "agent" as const,
+      agentId: bridgeAgent.id,
+      companyId: companyB.id,
+      source: "agent_jwt" as const,
+      keyId: randomUUID(),
+      keyScope: {
+        kind: "task_bridge" as const,
+        parentIssueId: parentIssue.id,
+      },
+    };
+    const authz = authorizationService(db);
+
+    await expect(authz.decide({
+      actor,
+      action: "tasks:assign",
+      resource: { type: "issue", companyId: companyB.id, parentIssueId: parentIssue.id },
+    })).resolves.toMatchObject({ allowed: true });
+
+    // The agent-record lookup just below the presented-key check denies with the
+    // same reason, so reason alone passes even with the key check deleted. The
+    // explanation is what pins that the denial came from the presented key.
+    await expect(authz.decide({
+      actor,
+      action: "tasks:assign",
+      resource: { type: "issue", companyId: companyA.id },
+    })).resolves.toMatchObject({
+      allowed: false,
+      reason: "deny_company_boundary",
+      explanation: "Agent key cannot access another company.",
+    });
+
+    // Third assertion: ambient identity = companyA, presented key still claims companyB.
+    // Without the presented-key guard at authorization.ts:1860, the ambient guard would
+    // pass (strayAgent.companyId A === resource companyId A) and the scope check would
+    // pass (parentIssueId matches), so this would incorrectly allow. This assertion
+    // kills that mutation.
+    const strayAgent = await createAgent(db, companyA.id);
+    const strayActor = { ...actor, agentId: strayAgent.id };
+    await expect(authz.decide({
+      actor: strayActor,
+      action: "tasks:assign",
+      resource: { type: "issue", companyId: companyA.id, parentIssueId: parentIssue.id },
+    })).resolves.toMatchObject({ allowed: false, reason: "deny_company_boundary" });
+  });
+
   it("scopes skill-test keys to their own issue only", async () => {
     const company = await createCompany(db, "SkillTest");
     const skillTestAgent = await createAgent(db, company.id);

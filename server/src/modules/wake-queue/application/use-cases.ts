@@ -41,6 +41,7 @@ const ISSUE_DISPOSITION_REPAIR_RETRY_REASON = "issue_disposition_repair";
 const EXECUTION_REVIEW_PARTICIPANT_RECOVERY_WAKE_REASONS = new Set([
   "execution_review_requested",
   "execution_approval_requested",
+  "execution_git_requested",
 ]);
 const HEARTBEAT_RUN_TERMINAL_STATUSES = new Set([
   "succeeded",
@@ -356,8 +357,13 @@ async function promoteDeferredWake(
   // after completion; it cannot revive a cancelled task. Other stale
   // continuations cannot revive assignee execution. Cancel before claiming promotion so
   // the compare-and-set still sees the deferred wake.
+  const onboardingResultReport = currentIssue.status === "done" && currentIssue.originKind === "onboarding_first_task" &&
+    await ports.transaction.isCompletedOnboardingHandoffWake({ companyId: run.companyId, issueId: currentIssue.id,
+      agentId: workingCandidate.agentId, reason: workingCandidate.wakeReason ?? workingCandidate.reason,
+      contextSnapshot: workingCandidate.deferredContextSeed });
   if (
     !shouldReopen &&
+    !onboardingResultReport &&
     (currentIssue.status === "done" || currentIssue.status === "cancelled") &&
     workingCandidate.agentId === currentIssue.assigneeAgentId
   ) {

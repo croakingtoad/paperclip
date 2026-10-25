@@ -1,4 +1,5 @@
 import { redactCommandText } from "@paperclipai/adapter-utils";
+import { isPublicExecutorToolSelector } from "@paperclipai/adapter-utils/command-redaction";
 
 const SECRET_FIELD_NAME_PATTERN = String.raw`[A-Za-z0-9_-]*(?:api[-_]?key|access[-_]?token|auth(?:_?token)?|token|authorization|bearer|secret|passwd|password|credential|jwt|private[-_]?key|cookie|connectionstring|browser[-_]?code|login[-_]?url)[A-Za-z0-9_-]*`;
 
@@ -91,6 +92,7 @@ export const PAPERCLIP_PUBLIC_SCHEMA_IDS = new Set([
   "paperclip.native-execution-input.v2",
   "paperclip.native-execution-input.v3",
   "paperclip.native-execution-input.v4",
+  "paperclip.native-execution-input.v5",
   "paperclip.native-finalization.v1",
   "paperclip.native-finalization.v2",
   "paperclip.native-harness-backup-stamp.v1",
@@ -98,6 +100,7 @@ export const PAPERCLIP_PUBLIC_SCHEMA_IDS = new Set([
   "paperclip.native-harness-backup.v1",
   "paperclip.native-model-envelope.v1",
   "paperclip.native-model-envelope.v2",
+  "paperclip.native-model-envelope.v3",
   "paperclip.native-session-scope.v2",
   "paperclip.native-session-supervisor.v1",
   "paperclip.plan.updated.v1",
@@ -735,7 +738,7 @@ function sanitizeValue(value: unknown): unknown {
   // string leaf after validated protocol discriminators have had a chance to
   // opt in above in sanitizeRecord.
   if (typeof value === "string") {
-    return JWT_VALUE_RE.test(value)
+    return JWT_VALUE_RE.test(value) && !isPublicExecutorToolSelector(value)
       ? REDACTED_EVENT_VALUE
       : redactSensitiveText(value);
   }
@@ -926,6 +929,7 @@ export function sanitizeRecord(
     if (
       typeof value === "string" &&
       JWT_VALUE_RE.test(value) &&
+      !isPublicExecutorToolSelector(value) &&
       !isPaperclipSchemaDiscriminator(key, value)
     ) {
       redacted[key] = REDACTED_EVENT_VALUE;

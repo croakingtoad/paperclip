@@ -120,6 +120,8 @@ export function isAiConnectionCompatible(
       runnerProvider === "claude" ||
       (runnerProvider === "acpx" && acpxAgent === "claude")
         ? "claude_local"
+        : runnerProvider === "acpx" && acpxAgent === "grok"
+          ? "grok_local"
         : runnerProvider === "codex"
           ? "codex_local"
           : runnerProvider === "opencode"
@@ -132,6 +134,7 @@ export function isAiConnectionCompatible(
   return (
     candidates.some((method) => method?.adapters.includes(adapterType)) &&
     (requirement.provider !== "openrouter" ||
+      adapterType === "opencode_local" ||
       (typeof model === "string" && model.startsWith("openrouter/")))
   );
 }

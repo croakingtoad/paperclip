@@ -1,5 +1,6 @@
+import { AgentAvatar } from "@/components/AgentAvatar";
 import { useMemo, useState } from "react";
-import type { Agent, Issue } from "@paperclipai/shared";
+import type { Agent, Issue, IssueExecutionStageType } from "@paperclipai/shared";
 import { useQuery } from "@tanstack/react-query";
 import { accessApi } from "../api/access";
 import { formatAssigneeUserLabel } from "../lib/assignees";
@@ -12,10 +13,21 @@ import {
 } from "../lib/issue-execution-policy";
 import { cn } from "../lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { User, Eye, ShieldCheck } from "lucide-react";
-import { AgentIcon } from "./AgentIconPicker";
+import { User, Eye, ShieldCheck, GitBranch } from "lucide-react";
 
-type StageType = "review" | "approval";
+type StageType = IssueExecutionStageType;
+
+const STAGE_LABEL: Record<StageType, string> = {
+  review: "Reviewers",
+  approval: "Approvers",
+  git: "Git owner",
+};
+
+const STAGE_ICON: Record<StageType, typeof Eye> = {
+  review: Eye,
+  approval: ShieldCheck,
+  git: GitBranch,
+};
 
 interface ExecutionParticipantPickerProps {
   issue: Issue;
@@ -35,9 +47,7 @@ export function ExecutionParticipantPicker({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
 
-  const reviewerValues = stageParticipantValues(issue.executionPolicy, "review");
-  const approverValues = stageParticipantValues(issue.executionPolicy, "approval");
-  const values = stageType === "review" ? reviewerValues : approverValues;
+  const values = stageParticipantValues(issue.executionPolicy, stageType);
   const { data: companyMembers } = useQuery({
     queryKey: queryKeys.access.companyUserDirectory(issue.companyId),
     queryFn: () => accessApi.listUserDirectory(issue.companyId),
@@ -76,8 +86,7 @@ export function ExecutionParticipantPicker({
     onUpdate({
       executionPolicy: buildExecutionPolicy({
         existingPolicy: issue.executionPolicy ?? null,
-        reviewerValues: stageType === "review" ? nextValues : reviewerValues,
-        approverValues: stageType === "approval" ? nextValues : approverValues,
+        stageValues: { [stageType]: nextValues },
       }),
     });
   };
@@ -89,8 +98,8 @@ export function ExecutionParticipantPicker({
     updatePolicy(next);
   };
 
-  const label = stageType === "review" ? "Reviewers" : "Approvers";
-  const Icon = stageType === "review" ? Eye : ShieldCheck;
+  const label = STAGE_LABEL[stageType];
+  const Icon = STAGE_ICON[stageType];
 
   return (
     <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch(""); }}>
@@ -189,7 +198,7 @@ export function ExecutionParticipantPicker({
                   )}
                   onClick={() => toggle(encoded)}
                 >
-                  <AgentIcon icon={agent.icon} className="shrink-0 h-3 w-3 text-muted-foreground" />
+                  <AgentAvatar agent={agent} size={16} className="shrink-0 h-3 w-3 text-muted-foreground"/>
                   {agent.name}
                 </button>
               );

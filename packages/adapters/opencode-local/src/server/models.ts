@@ -7,6 +7,7 @@ import {
   runChildProcess,
 } from "@paperclipai/adapter-utils/server-utils";
 import { isValidOpenCodeModelId } from "../index.js";
+import { parseProviderConfig } from "./runtime-config.js";
 
 const MODELS_CACHE_TTL_MS = 60_000;
 const MODELS_DISCOVERY_TIMEOUT_MS = 20_000;
@@ -353,12 +354,41 @@ export async function ensureOpenCodeModelConfiguredAndAvailable(input: {
   return models;
 }
 
-export async function listOpenCodeModels(): Promise<AdapterModel[]> {
-  try {
-    return await discoverOpenCodeModelsCached();
-  } catch {
-    return [];
+// Models served by a custom provider declared in PAPERCLIP_OPENCODE_PROVIDERS never
+// appear in `opencode models` output -- that command enumerates the models.dev catalog,
+// which knows nothing about a private gateway. The run path still resolves them (the
+// provider block is injected into the runtime opencode.json), so the dropdown was the
+// only place they were invisible. Placeholders are deliberately left unresolved: this
+// list is UI metadata and must never carry a gateway key.
+function declaredProviderModels(): AdapterModel[] {
+  const providers = parseProviderConfig(
+    process.env.PAPERCLIP_OPENCODE_PROVIDERS,
+    () => undefined,
+    [],
+  );
+  if (!providers) return [];
+  const declared: AdapterModel[] = [];
+  for (const [providerId, entry] of Object.entries(providers)) {
+    const models = (entry as Record<string, unknown>).models;
+    if (typeof models !== "object" || models === null || Array.isArray(models)) continue;
+    for (const modelId of Object.keys(models)) {
+      const id = `${providerId}/${modelId}`;
+      if (isValidOpenCodeModelId(id)) declared.push({ id, label: id });
+    }
   }
+  return declared;
+}
+
+export async function listOpenCodeModels(): Promise<AdapterModel[]> {
+  const declared = declaredProviderModels();
+  let discovered: AdapterModel[] = [];
+  try {
+    discovered = await discoverOpenCodeModelsCached();
+  } catch {
+    // Discovery failing must not hide the gateway models we can name from config.
+  }
+  if (declared.length === 0) return discovered;
+  return sortModels(dedupeModels([...discovered, ...declared]));
 }
 
 export function resetOpenCodeModelsCacheForTests() {

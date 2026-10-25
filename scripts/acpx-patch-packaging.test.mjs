@@ -21,6 +21,7 @@ import { bundledCliNpmDependencies } from "./cli-bundled-npm-dependencies.mjs";
 import {
   createBundledInstallManifest,
   materializePublishManifest,
+  prepareBundledPackage,
   selectBundledDependencyPatches,
 } from "./prepare-bundled-package.mjs";
 
@@ -173,6 +174,22 @@ test("bundled package staging materializes workspace dependency versions", () =>
     caret: "^2026.723.0",
     tilde: "~2026.723.0",
   });
+});
+
+test("bundled package staging uses dependency own version not depending package version", () => {
+  const resolver = (name) => name === "@paperclipai/plugin-sdk" ? "1.0.0" : undefined;
+  const staged = materializePublishManifest({
+    name: "@paperclipai/server",
+    version: "0.3.1",
+    dependencies: {
+      "@paperclipai/plugin-sdk": "workspace:^",
+      "@paperclipai/shared": "workspace:*"
+    },
+  }, resolver);
+  // plugin-sdk resolves to 1.0.0 (its own version), not 0.3.1 (server's version)
+  assert.equal(staged.dependencies["@paperclipai/plugin-sdk"], "^1.0.0");
+  // shared falls back to pkg.version when resolver returns undefined
+  assert.equal(staged.dependencies["@paperclipai/shared"], "0.3.1");
 });
 
 test("bundled package staging installs only dependencies included in the tarball", () => {
@@ -425,6 +442,24 @@ test("npm builds use corepack instead of requiring a global pnpm", () => {
   assert.doesNotMatch(buildNpmScript, /^\s*pnpm -r typecheck/m);
 });
 
+
+test("buildWorkspaceVersionResolver throws when release-package-manifest.json is absent", (t) => {
+  const tempDir = mkdtempSync(join(tmpdir(), "paperclip-missing-release-manifest-"));
+  const sourceDir = join(tempDir, "source");
+  const destinationDir = join(tempDir, "destination");
+  mkdirSync(sourceDir, { recursive: true });
+  writeFileSync(
+    join(sourceDir, "package.json"),
+    JSON.stringify({ name: "@paperclipai/example", version: "1.0.0", bundleDependencies: ["acpx"] }),
+  );
+  t.after(() => rmSync(tempDir, { recursive: true, force: true }));
+
+  // sourceRoot has no scripts/release-package-manifest.json — must throw
+  assert.throws(
+    () => prepareBundledPackage(sourceDir, destinationDir, { sourceRoot: tempDir }),
+    /Failed to read release-package-manifest\.json/,
+  );
+});
 
 test("installed ACPX runtime persists and restores optional goal capabilities", () => {
   const requireRunner = createRequire(new URL("../packages/paperclip-runner/package.json", import.meta.url));

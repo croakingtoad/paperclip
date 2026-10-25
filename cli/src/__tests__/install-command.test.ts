@@ -34,11 +34,13 @@ describe("managed install commands", () => {
 
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "paperclip-install-command-"));
+    const pnpmFreeBin = path.join(root, "bin");
+    fs.mkdirSync(pnpmFreeBin, { recursive: true });
     process.env = {
       ...ORIGINAL_ENV,
       HOME: path.join(root, "home"),
       PAPERCLIP_HOME: path.join(root, "home", ".paperclip"),
-      PATH: "/usr/bin:/bin",
+      PATH: pnpmFreeBin,
       SHELL: "/bin/bash",
     };
     fs.mkdirSync(process.env.HOME!, { recursive: true });
@@ -124,9 +126,12 @@ describe("managed install commands", () => {
           fs.mkdirSync(path.join(checkout, workspacePackage.dir), { recursive: true });
           fs.writeFileSync(path.join(checkout, workspacePackage.dir, "package.json"), JSON.stringify(workspacePackage.packageJson));
         }
+        fs.mkdirSync(path.join(checkout, "skills"), { recursive: true });
+        fs.mkdirSync(path.join(checkout, "packages/adapters/claude-local"), { recursive: true });
+        fs.mkdirSync(path.join(checkout, "packages/adapters/codex-local"), { recursive: true });
         return { stdout: "", stderr: "" };
       }
-      if (file === "corepack") {
+      if (file === "corepack" || file === "pnpm") {
         if (args.includes("pack")) {
           const destination = args[args.indexOf("--pack-destination") + 1];
           const packageDir = args[args.indexOf("--dir") + 1];
@@ -137,7 +142,7 @@ describe("managed install commands", () => {
       }
       if (file === "bash") return { stdout: "", stderr: "" };
       if (file === "npm" && args[0] === "pack") {
-        const packageName = args[1]?.includes("workspace-package-") ? "paperclipai-db" : "paperclipai";
+        const packageName = args.some(a => a.includes("workspace-package-")) ? "paperclipai-db" : "paperclipai";
         fs.writeFileSync(path.join(args[args.indexOf("--pack-destination") + 1], `${packageName}-0.3.1.tgz`), "package");
         return { stdout: "", stderr: "" };
       }
@@ -172,13 +177,15 @@ describe("managed install commands", () => {
     process.env.NODE_ENV = "production";
     const sha = "d".repeat(40);
     const runCommand = createGitCheckoutRunCommand(sha);
+    const cpSyncSpy = vi.spyOn(fs, "cpSync");
     await expect(installGitPayload("paperclipai/paperclip", sha, runCommand, resolveInstallStorePaths())).resolves.toMatchObject({ version: "0.3.1", reused: false });
     const buildCalls = runCommand.mock.calls.filter(([file, args]) =>
       file === "bash" ||
       file === "corepack" ||
       (file === "npm" && args[0] === "pack") ||
       (file === process.execPath && args[0]?.endsWith("prepare-bundled-package.mjs")));
-    expect(buildCalls).toHaveLength(9);
+    expect(buildCalls).toHaveLength(10);
+    expect(buildCalls.some(([f, a]) => f === "bash" && Array.isArray(a) && a.includes("scripts/prepare-server-ui-dist.sh"))).toBe(true);
     for (const call of buildCalls) {
       const env = call[2]?.env;
       expect(env, `${call[0]} ${call[1].join(" ")} must run with an explicit env`).toBeDefined();
@@ -186,6 +193,16 @@ describe("managed install commands", () => {
     }
     const uiPackCall = buildCalls.find(([file, , options]) => file === "corepack" && options?.env?.PAPERCLIP_RELEASE_REUSE_UI_DIST === "1");
     expect(uiPackCall).toBeDefined();
+    expect(cpSyncSpy.mock.calls.filter(([src]) => String(src).includes("skills"))).toHaveLength(3);
+  });
+
+  it("passes --ignore-scripts to npm pack for bundled workspace packages", async () => {
+    const sha = "e".repeat(40);
+    const runCommand = createGitCheckoutRunCommand(sha);
+    await installGitPayload("paperclipai/paperclip", sha, runCommand, resolveInstallStorePaths());
+    const bundledPackCall = runCommand.mock.calls.find(([file, args]) =>
+      file === "npm" && args[0] === "pack" && args.some((a) => a.includes("workspace-package-")));
+    expect(bundledPackCall?.[1]).toContain("--ignore-scripts");
   });
 
   it("resolves the complete server workspace dependency closure in dependency order", () => {
@@ -371,6 +388,40 @@ describe("managed install commands", () => {
     const runCommand = vi.fn(async () => ({ stdout: "", stderr: "" }));
     await expect(installGitPayload("paperclipai/paperclip", "4".repeat(40), runCommand, paths)).rejects.toThrow("unsafe payload root");
     expect(runCommand).not.toHaveBeenCalled();
+  });
+
+  it("uses pnpm from PATH directly and skips corepack enable when pnpm binary is available", async () => {
+    const fakePnpmDir = path.join(root, "bin-with-pnpm");
+    fs.mkdirSync(fakePnpmDir, { recursive: true });
+    fs.writeFileSync(path.join(fakePnpmDir, "pnpm"), "#!/bin/sh\n", { mode: 0o755 });
+    process.env.PATH = `${fakePnpmDir}${path.delimiter}${process.env.PATH}`;
+
+    const sha = "f".repeat(40);
+    const runCommand = createGitCheckoutRunCommand(sha);
+    await installGitPayload("paperclipai/paperclip", sha, runCommand, resolveInstallStorePaths());
+
+    expect(runCommand.mock.calls.filter(([cmd, args]) => cmd === "corepack" && args.includes("enable"))).toHaveLength(0);
+    expect(runCommand.mock.calls.filter(([cmd]) => cmd === "pnpm").length).toBeGreaterThan(0);
+  });
+
+  it("uses PAPERCLIP_GIT_TOKEN as authorization fallback when GH_TOKEN and GITHUB_TOKEN are absent", async () => {
+    delete process.env.GH_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+    process.env.PAPERCLIP_GIT_TOKEN = "test-paperclip-token";
+
+    const sha = "a".repeat(40);
+    let capturedAuthHeader: string | undefined;
+    const runCommand = vi.fn(async (_file: string, args: string[]) => {
+      if (args.includes("--config")) {
+        const configFile = args[args.indexOf("--config") + 1];
+        capturedAuthHeader = fs.readFileSync(configFile, "utf8");
+      }
+      return { stdout: JSON.stringify({ sha }), stderr: "" };
+    });
+
+    await resolveGitHubRef("paperclipai/paperclip", "master", runCommand);
+
+    expect(capturedAuthHeader).toContain("test-paperclip-token");
   });
 
 });

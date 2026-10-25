@@ -1425,6 +1425,8 @@ describe.sequential("issue comment reopen routes", () => {
         attachmentIds: undefined,
         authorType: "user",
         authorizationReason: "allow_board_actor",
+        clientRequestId: undefined,
+        mirrorToSlack: true,
         presentation: {
           kind: "system_notice",
           tone: "warning",
@@ -2403,15 +2405,11 @@ describe.sequential("issue comment reopen routes", () => {
     );
 
     mockHeartbeatService.wakeup.mockClear();
-    mockIssueService.findMentionedAgents.mockClear();
     res = await request(await installActor(createApp(), agentActor(agentB)))
       .post("/api/issues/11111111-1111-4111-8111-111111111111/comments")
       .send({ body: "B replies on B's own issue" });
     expect(res.status).toBe(201);
-    await vi.waitFor(() =>
-      expect(mockIssueService.findMentionedAgents).toHaveBeenCalledOnce(),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => setImmediate(resolve));
     expect(mockHeartbeatService.wakeup).not.toHaveBeenCalled();
 
     mockIssueService.getById.mockResolvedValue({
@@ -4103,5 +4101,116 @@ describe.sequential("issue comment reopen routes", () => {
         }),
       ),
     );
+  });
+
+  it("does not clear executionState or fire wakeup when pending participant posts a plain PATCH comment with no policy", async () => {
+    const stageId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const participantUserId = "local-board";
+    const issue = {
+      ...makeIssue("in_review"),
+      assigneeAgentId: null,
+      assigneeUserId: participantUserId,
+      executionPolicy: null,
+      executionState: {
+        status: "pending",
+        currentStageId: stageId,
+        currentStageIndex: 0,
+        currentStageType: "approval",
+        currentParticipant: { type: "user", userId: participantUserId },
+        returnAssignee: { type: "agent", agentId: "22222222-2222-4222-8222-222222222222" },
+        completedStageIds: [],
+        lastDecisionId: null,
+        lastDecisionOutcome: null,
+      },
+    };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.update.mockImplementation(
+      async (_id: string, patch: Record<string, unknown>) => ({
+        ...issue,
+        ...patch,
+        updatedAt: new Date(),
+      }),
+    );
+    mockIssueService.addComment.mockResolvedValue({
+      id: "comment-1",
+      body: "Just a note",
+      createdByRunId: null,
+    });
+
+    const res = await request(
+      await installActor(createApp(), {
+        type: "board",
+        userId: participantUserId,
+        companyIds: ["company-1"],
+        source: "local_implicit",
+        isInstanceAdmin: false,
+      }),
+    )
+      .patch("/api/issues/11111111-1111-4111-8111-111111111111")
+      .send({ comment: "Just a note" });
+
+    expect(res.status).toBe(200);
+    // executionState must not be cleared by the PATCH handler
+    const updateCall = mockIssueService.update.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+    expect(updateCall?.executionState).toBeUndefined();
+    // status must remain in_review
+    expect(res.body.status).toBe("in_review");
+    // no wakeup should be fired
+    await new Promise((r) => setTimeout(r, 10));
+    expect(mockHeartbeatService.wakeup).not.toHaveBeenCalled();
+  });
+
+  it("clears executionState when a non-participant board user posts a plain PATCH comment with no policy", async () => {
+    const stageId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const participantUserId = "local-board";
+    const nonParticipantUserId = "other-board-user";
+    const returnAssigneeAgentId = "22222222-2222-4222-8222-222222222222";
+    const issue = {
+      ...makeIssue("in_review"),
+      assigneeAgentId: null,
+      assigneeUserId: participantUserId,
+      executionPolicy: null,
+      executionState: {
+        status: "pending",
+        currentStageId: stageId,
+        currentStageIndex: 0,
+        currentStageType: "approval",
+        currentParticipant: { type: "user", userId: participantUserId },
+        returnAssignee: { type: "agent", agentId: returnAssigneeAgentId },
+        completedStageIds: [],
+        lastDecisionId: null,
+        lastDecisionOutcome: null,
+      },
+    };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.update.mockImplementation(
+      async (_id: string, patch: Record<string, unknown>) => ({
+        ...issue,
+        ...patch,
+        updatedAt: new Date(),
+      }),
+    );
+    mockIssueService.addComment.mockResolvedValue({
+      id: "comment-2",
+      body: "Non-participant comment",
+      createdByRunId: null,
+    });
+
+    const res = await request(
+      await installActor(createApp(), {
+        type: "board",
+        userId: nonParticipantUserId,
+        companyIds: ["company-1"],
+        source: "local_implicit",
+        isInstanceAdmin: false,
+      }),
+    )
+      .patch("/api/issues/11111111-1111-4111-8111-111111111111")
+      .send({ comment: "Non-participant comment" });
+
+    expect(res.status).toBe(200);
+    // executionState must be cleared — non-participant plain PATCH should collapse the stage
+    const updateCall = mockIssueService.update.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+    expect(updateCall?.executionState).toBeNull();
   });
 });

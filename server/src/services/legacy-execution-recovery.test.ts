@@ -71,3 +71,37 @@ it("retries a busy AI subscription only when no provider work started", () => {
    expect(legacyExecutionNeedsReconciliation({ ...waiting, resultJson: {} })).toBe(true);
    expect(legacyExecutionNeedsReconciliation({ ...waiting, resultJson: { executionRecovery: { kind: "ai_connection_wait", providerWorkStarted: true } } })).toBe(true);
  });
+
+
+it.each(["failed", "timed_out", "cancelled"])("holds an unsafe archive after %s even with conversation or bootstrap evidence", (status) => {
+  expect(legacyExecutionNeedsReconciliation({ runtimeMode: "legacy", status, errorCode: "workspace_restore_failed", resultJson: {
+    workspaceRestoreFailure: "restore_unsafe_archive", conversationContinuation: "continue_conversation_v1",
+    executionRecovery: { kind: "bootstrap", providerWorkStarted: false }, stopReason: "max_turns",
+  } })).toBe(true);
+});
+
+
+it("does not hold a queued turn the stale-run gate cancelled before it was ever claimed", () => {
+  // Shape of the run that wedged LOC-192: cancelled by the stale queued-run
+  // gate while the issue awaited review, so no provider ever saw it.
+  const neverClaimed = {
+    runtimeMode: "legacy", status: "cancelled", startedAt: null,
+    errorCode: "issue_continuation_waiting_on_review",
+    resultJson: { stopReason: "issue_continuation_waiting_on_review", timeoutSource: "stale_queued_run_gate", timeoutFired: false },
+  };
+  expect(legacyExecutionNeedsReconciliation(neverClaimed)).toBe(false);
+  // A claimed run reached a provider; an unreported startedAt proves nothing.
+  expect(legacyExecutionNeedsReconciliation({ ...neverClaimed, startedAt: new Date() })).toBe(true);
+  expect(legacyExecutionNeedsReconciliation({ ...neverClaimed, startedAt: undefined })).toBe(true);
+  expect(legacyExecutionNeedsReconciliation({ ...neverClaimed, status: "failed" })).toBe(true);
+  // An unsafe archive outranks every never-started proof.
+  expect(legacyExecutionNeedsReconciliation({ ...neverClaimed, resultJson: {
+    workspaceRestoreFailure: "restore_unsafe_archive",
+  } })).toBe(true);
+});
+
+it("retains conversation retry eligibility for a transient restore lock timeout", () => {
+  expect(legacyExecutionNeedsReconciliation({ runtimeMode: "legacy", status: "failed", errorCode: "workspace_restore_failed", resultJson: {
+    workspaceRestoreFailure: "restore_lock_timeout", conversationContinuation: "continue_conversation_v1",
+  } })).toBe(false);
+});

@@ -1,3 +1,6 @@
+import { useWorkspaceIsolationControls } from "@/hooks/useWorkspaceIsolationControls";
+import { AgentIdentity } from "@/components/AgentIdentity";
+import { AgentAvatar } from "@/components/AgentAvatar";
 import { normalizeLegacyRunnerProvider } from "@paperclipai/adapter-utils";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { createPortal } from "react-dom";
@@ -10,6 +13,7 @@ import {
   isArtifactReviewDocumentKey,
   type ExecutionWorkspace,
   type Issue,
+  type IssueExecutionStageType,
   type IssueLabel,
 } from "@paperclipai/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -39,7 +43,13 @@ import {
 import { getRecentProjectIds, trackRecentProject } from "../../lib/recent-projects";
 import { orderItemsBySelectedAndRecent } from "../../lib/recent-selections";
 import { formatAssigneeUserLabel, formatUserLabel } from "../../lib/assignees";
-import { buildExecutionPolicy, stageParticipantValues } from "../../lib/issue-execution-policy";
+import {
+  EXECUTION_STAGE_LABEL,
+  EXECUTION_STAGE_PARTICIPANT_LABEL,
+  buildExecutionPolicy,
+  isPendingExecutionParticipant,
+  stageParticipantValues,
+} from "../../lib/issue-execution-policy";
 import {
   formatMonitorAbsolute,
   formatMonitorAbsoluteFull,
@@ -78,7 +88,6 @@ import {
 import { IssuePropertiesPlansTab } from "./IssuePropertiesPlansTab";
 import { IssuePropertiesArtifactsTab } from "./IssuePropertiesArtifactsTab";
 import { User, ArrowUpRight, Plus, X, GitBranch, FolderOpen, HardDrive, Check, Clock, RotateCcw, Loader2, CheckCircle2, ArchiveRestore, ChevronLeft } from "lucide-react";
-import { AgentIcon } from "../AgentIconPicker";
 import { InlineEntitySelector, type InlineEntityOption } from "../InlineEntitySelector";
 import {
   AssigneeRunningBanner,
@@ -376,6 +385,8 @@ export function IssueProperties({
   const [reviewerSearch, setReviewerSearch] = useState("");
   const [approversOpen, setApproversOpen] = useState(false);
   const [approverSearch, setApproverSearch] = useState("");
+  const [gitOwnersOpen, setGitOwnersOpen] = useState(false);
+  const [gitOwnerSearch, setGitOwnerSearch] = useState("");
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [monitorDetailsOpen, setMonitorDetailsOpen] = useState(false);
   const [scheduledRetryOpen, setScheduledRetryOpen] = useState(false);
@@ -391,6 +402,8 @@ export function IssueProperties({
   const [runtimeActionMessage, setRuntimeActionMessage] = useState<string | null>(null);
   const [runtimeActionErrorMessage, setRuntimeActionErrorMessage] = useState<string | null>(null);
   const [unarchiveErrorMessage, setUnarchiveErrorMessage] = useState<string | null>(null);
+  const [requestChangesOpen, setRequestChangesOpen] = useState(false);
+  const [requestChangesText, setRequestChangesText] = useState("");
   const [watchdogOpen, setWatchdogOpen] = useState(false);
   const [watchdogAgentInput, setWatchdogAgentInput] = useState(issue.watchdog?.watchdogAgentId ?? "");
   const [watchdogInstructionsInput, setWatchdogInstructionsInput] = useState(issue.watchdog?.instructions ?? "");
@@ -529,7 +542,8 @@ export function IssueProperties({
     ? orderedProjects.find((project) => project.id === issue.projectId) ?? null
     : null;
   const issueProject = issue.project ?? currentProject;
-  const workspacePickerEligible = experimentalSettings?.enableIsolatedWorkspaces === true
+  const { visible: workspaceIsolationControlsVisible } = useWorkspaceIsolationControls();
+  const workspacePickerEligible = workspaceIsolationControlsVisible && experimentalSettings?.enableIsolatedWorkspaces === true
     && Boolean(issueProject?.executionWorkspacePolicy?.enabled);
   const {
     data: reusableExecutionWorkspaces,
@@ -929,6 +943,7 @@ export function IssueProperties({
   );
   const reviewerValues = stageParticipantValues(issue.executionPolicy, "review");
   const approverValues = stageParticipantValues(issue.executionPolicy, "approval");
+  const gitOwnerValues = stageParticipantValues(issue.executionPolicy, "git");
   const userLabel = (userId: string | null | undefined) => formatAssigneeUserLabel(userId, currentUserId, userLabelMap);
   const actualUserLabel = (userId: string | null | undefined) => formatUserLabel(userId, userLabelMap);
   const assigneeUserLabel = userLabel(issue.assigneeUserId);
@@ -949,7 +964,7 @@ export function IssueProperties({
   // --- Interrupt-handoff clarity for the assignee picker (design surface 2) ---
   const handoffResolvers: HandoffChipResolvers = useMemo(
     () => ({
-      agentMap: new Map((agents ?? []).map((agent) => [agent.id, { name: agent.name, icon: agent.icon }])),
+      agentMap: new Map((agents ?? []).map((agent) => [agent.id, agent])),
       resolveUserLabel: (id) => userLabel(id),
     }),
     // userLabel closes over userLabelMap + currentUserId, both reflected here.
@@ -990,23 +1005,21 @@ export function IssueProperties({
     }
     applyAssignee(next, track);
   };
-  const updateExecutionPolicy = (nextReviewers: string[], nextApprovers: string[]) => {
+  const updateExecutionStage = (stageType: IssueExecutionStageType, nextValues: string[]) => {
     onUpdate({
       executionPolicy: buildExecutionPolicy({
         existingPolicy: issue.executionPolicy ?? null,
-        reviewerValues: nextReviewers,
-        approverValues: nextApprovers,
+        stageValues: { [stageType]: nextValues },
       }),
     });
   };
-  const toggleExecutionParticipant = (stageType: "review" | "approval", value: string) => {
-    const currentValues = stageType === "review" ? reviewerValues : approverValues;
-    const nextValues = currentValues.includes(value)
-      ? currentValues.filter((candidate) => candidate !== value)
-      : [...currentValues, value];
-    updateExecutionPolicy(
-      stageType === "review" ? nextValues : reviewerValues,
-      stageType === "approval" ? nextValues : approverValues,
+  const toggleExecutionParticipant = (stageType: IssueExecutionStageType, value: string) => {
+    const currentValues = stageParticipantValues(issue.executionPolicy, stageType);
+    updateExecutionStage(
+      stageType,
+      currentValues.includes(value)
+        ? currentValues.filter((candidate) => candidate !== value)
+        : [...currentValues, value],
     );
   };
   const executionParticipantLabel = (value: string) => {
@@ -1026,6 +1039,10 @@ export function IssueProperties({
   const approverTrigger = approverValues.length > 0
     ? <span className="text-sm truncate min-w-0" title={approverLabel}>{approverLabel}</span>
     : <span className="text-sm text-muted-foreground">None</span>;
+  const gitOwnerLabel = gitOwnerValues.map((value) => executionParticipantLabel(value)).join(", ");
+  const gitOwnerTrigger = gitOwnerValues.length > 0
+    ? <span className="text-sm truncate min-w-0" title={gitOwnerLabel}>{gitOwnerLabel}</span>
+    : <span className="text-sm text-muted-foreground">None</span>;
   // PAP-16506 P4: who may give the `in_review` verdict. Only an agent sets this,
   // and only the two opt-in constraints are worth a row — the default (`null` ≡
   // "anyone can approve") is what every issue already does, so it shows nothing.
@@ -1037,22 +1054,23 @@ export function IssueProperties({
     if (issue.executionState) return null;
     if (reviewerValues.length > 0) return "review";
     if (approverValues.length > 0) return "approval";
+    if (gitOwnerValues.length > 0) return "git";
     return null;
   })();
-  const runExecutionButton = (stageType: "review" | "approval") => (
+  const runExecutionButton = (stageType: IssueExecutionStageType) => (
     <PropertyRow label="">
       <button
         type="button"
         className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
         onClick={() => onUpdate({ status: "in_review" })}
       >
-        {stageType === "review" ? "Run review now" : "Run approval now"}
+        Run {EXECUTION_STAGE_LABEL[stageType].toLowerCase()} now
       </button>
     </PropertyRow>
   );
   const currentExecutionLabel = (() => {
     if (!issue.executionState?.currentStageType) return null;
-    const stageLabel = issue.executionState.currentStageType === "review" ? "Review" : "Approval";
+    const stageLabel = EXECUTION_STAGE_LABEL[issue.executionState.currentStageType];
     const participant = issue.executionState.currentParticipant;
     const participantLabel = participant
       ? (participant.type === "agent"
@@ -1064,6 +1082,7 @@ export function IssueProperties({
     }
     return `${stageLabel} pending${participantLabel ? ` with ${participantLabel}` : ""}`;
   })();
+  const viewerIsPendingParticipant = isPendingExecutionParticipant(issue, currentUserId);
   useEffect(() => {
     setMonitorAtInput(toDateTimeLocalValue(issue.executionPolicy?.monitor?.nextCheckAt));
     setMonitorNotesInput(issue.executionPolicy?.monitor?.notes ?? "");
@@ -1141,7 +1160,7 @@ export function IssueProperties({
     <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 text-sm" title={issue.watchdog.instructions?.trim() || undefined}>
       {(() => {
         const agent = (agents ?? []).find((candidate) => candidate.id === issue.watchdog?.watchdogAgentId);
-        return agent ? <AgentIcon icon={agent.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null;
+        return agent ? <AgentAvatar agent={agent} size={16} className="h-3.5 w-3.5 shrink-0 text-muted-foreground"/> : null;
       })()}
       <span className="shrink-0 max-w-40 truncate">{agentName(issue.watchdog.watchdogAgentId)}</span>
       {issue.watchdog.instructions?.trim() ? (
@@ -1185,7 +1204,7 @@ export function IssueProperties({
             const agent = (agents ?? []).find((candidate) => candidate.id === option.id);
             return (
               <>
-                {agent ? <AgentIcon icon={agent.icon} className="h-3 w-3 shrink-0 text-muted-foreground" /> : null}
+                {agent ? <AgentAvatar agent={agent} size={16} className="h-3 w-3 shrink-0 text-muted-foreground"/> : null}
                 <span className="truncate">{option.label}</span>
               </>
             );
@@ -1194,7 +1213,7 @@ export function IssueProperties({
             const agent = (agents ?? []).find((candidate) => candidate.id === option.id);
             return (
               <>
-                {agent ? <AgentIcon icon={agent.icon} className="h-3 w-3 shrink-0 text-muted-foreground" /> : null}
+                {agent ? <AgentAvatar agent={agent} size={16} className="h-3 w-3 shrink-0 text-muted-foreground"/> : null}
                 <span className="truncate">{option.label}</span>
               </>
             );
@@ -1255,8 +1274,7 @@ export function IssueProperties({
     : never) => {
     const basePolicy = buildExecutionPolicy({
       existingPolicy: issue.executionPolicy ?? null,
-      reviewerValues,
-      approverValues,
+      stageValues: {},
     });
     if (!basePolicy && !nextMonitor) {
       onUpdate({ executionPolicy: null });
@@ -1691,7 +1709,7 @@ export function IssueProperties({
   );
 
   const assigneeTrigger = assignee ? (
-    <Identity name={assignee.name} size="sm" shape="square" />
+    <AgentIdentity agent={assignee} size="sm" />
   ) : assigneeUserLabel ? (
     <>
       <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -1771,7 +1789,7 @@ export function IssueProperties({
       }}
     >
       {option.kind === "agent" ? (
-        <AgentIcon icon={option.agent.icon} className="shrink-0 h-3 w-3 text-muted-foreground" />
+        <AgentAvatar agent={option.agent} size={16} className="shrink-0 h-3 w-3 text-muted-foreground"/>
       ) : option.kind === "user" ? (
         <User className="h-3 w-3 shrink-0 text-muted-foreground" />
       ) : null}
@@ -1848,7 +1866,7 @@ export function IssueProperties({
   );
 
   const executionParticipantsContent = (
-    stageType: "review" | "approval",
+    stageType: IssueExecutionStageType,
     values: string[],
     search: string,
     setSearch: (value: string) => void,
@@ -1857,7 +1875,7 @@ export function IssueProperties({
     <>
       <input
         className="w-full px-2 py-1.5 text-xs bg-transparent outline-none border-b border-border mb-1 placeholder:text-muted-foreground/50"
-        placeholder={`Search ${stageType === "review" ? "reviewers" : "approvers"}...`}
+        placeholder={`Search ${EXECUTION_STAGE_PARTICIPANT_LABEL[stageType].toLowerCase()}...`}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         autoFocus={!inline}
@@ -1870,7 +1888,7 @@ export function IssueProperties({
           )}
           onClick={onClear}
         >
-          No {stageType === "review" ? "reviewers" : "approvers"}
+          No {EXECUTION_STAGE_PARTICIPANT_LABEL[stageType].toLowerCase()}
         </button>
         {currentUserId && (
           <button
@@ -1930,7 +1948,7 @@ export function IssueProperties({
                 )}
                 onClick={() => toggleExecutionParticipant(stageType, encoded)}
               >
-                <AgentIcon icon={agent.icon} className="shrink-0 h-3 w-3 text-muted-foreground" />
+                <AgentAvatar agent={agent} size={16} className="shrink-0 h-3 w-3 text-muted-foreground"/>
                 {agent.name}
               </button>
             );
@@ -1944,7 +1962,7 @@ export function IssueProperties({
       <ProjectTile
         color={issueProject?.color ?? null}
         icon={issueProject?.icon ?? null}
-        size="xs"
+        size="sm"
       />
       <span className="text-sm truncate min-w-0" title={projectName(issue.projectId)}>{projectName(issue.projectId)}</span>
     </>
@@ -1997,8 +2015,8 @@ export function IssueProperties({
                     projectId: option.project.id,
                     projectWorkspaceId: defaultProjectWorkspaceIdForProject(option.project),
                     executionWorkspaceId: null,
-                    executionWorkspacePreference: defaultMode,
-                    executionWorkspaceSettings: option.project.executionWorkspacePolicy?.enabled
+                    executionWorkspacePreference: workspaceIsolationControlsVisible ? defaultMode : null,
+                    executionWorkspaceSettings: workspaceIsolationControlsVisible && option.project.executionWorkspacePolicy?.enabled
                       ? { mode: defaultMode }
                       : null,
                   });
@@ -2332,7 +2350,8 @@ export function IssueProperties({
         <PropertyRow label="Status">
           <StatusIcon
             status={issue.status}
-            className="size-3"
+            externalConversationState={issue.externalConversationState}
+            glyphContainerClassName="inline-flex size-6 shrink-0 items-center justify-center"
             blockerAttention={issue.blockerAttention}
             onChange={(status) => onUpdate({ status })}
             showLabel
@@ -2612,7 +2631,7 @@ export function IssueProperties({
             reviewerValues,
             reviewerSearch,
             setReviewerSearch,
-            () => updateExecutionPolicy([], approverValues),
+            () => updateExecutionStage("review", []),
           )}
         </PropertyPicker>
         {nextRunnableExecutionStage === "review" && reviewerValues.length > 0 ? runExecutionButton("review") : null}
@@ -2631,14 +2650,92 @@ export function IssueProperties({
             approverValues,
             approverSearch,
             setApproverSearch,
-            () => updateExecutionPolicy(reviewerValues, []),
+            () => updateExecutionStage("approval", []),
           )}
         </PropertyPicker>
         {nextRunnableExecutionStage === "approval" && approverValues.length > 0 ? runExecutionButton("approval") : null}
 
+        <PropertyPicker
+          inline={inline}
+          label="Git owner"
+          open={gitOwnersOpen}
+          onOpenChange={(open) => { setGitOwnersOpen(open); if (!open) setGitOwnerSearch(""); }}
+          triggerContent={gitOwnerTrigger}
+          triggerClassName="min-w-0 max-w-full"
+          popoverClassName="w-56"
+        >
+          {executionParticipantsContent(
+            "git",
+            gitOwnerValues,
+            gitOwnerSearch,
+            setGitOwnerSearch,
+            () => updateExecutionStage("git", []),
+          )}
+        </PropertyPicker>
+        {nextRunnableExecutionStage === "git" && gitOwnerValues.length > 0 ? runExecutionButton("git") : null}
+
         {currentExecutionLabel && (
           <PropertyRow label="Execution">
             <span className="text-sm truncate min-w-0" title={currentExecutionLabel}>{currentExecutionLabel}</span>
+          </PropertyRow>
+        )}
+
+        {viewerIsPendingParticipant && (
+          <PropertyRow label="">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                className="inline-flex items-center rounded-full border border-emerald-600/40 px-2 py-0.5 text-xs text-emerald-600 transition-colors hover:bg-emerald-600/10"
+                onClick={() => onUpdate({ status: "done", comment: "## Review: APPROVED" })}
+              >
+                Approve
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                onClick={() => setRequestChangesOpen((open) => !open)}
+              >
+                Request changes
+              </button>
+            </div>
+          </PropertyRow>
+        )}
+
+        {viewerIsPendingParticipant && requestChangesOpen && (
+          <PropertyRow label="">
+            <div className="flex w-full flex-col gap-1.5">
+              <textarea
+                autoFocus
+                rows={3}
+                value={requestChangesText}
+                onChange={(event) => setRequestChangesText(event.target.value)}
+                placeholder="Describe what needs to change..."
+                className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs"
+              />
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={requestChangesText.trim().length === 0}
+                  className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:opacity-50 disabled:hover:bg-transparent"
+                  onClick={() => {
+                    const comment = requestChangesText.trim();
+                    if (!comment) return;
+                    onUpdate({ status: "in_progress", comment });
+                    setRequestChangesText("");
+                    setRequestChangesOpen(false);
+                  }}
+                >
+                  Submit
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                  onClick={() => { setRequestChangesOpen(false); setRequestChangesText(""); }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
           </PropertyRow>
         )}
 
@@ -2877,11 +2974,7 @@ export function IssueProperties({
                 to={`/agents/${originatingActor.id}`}
                 className="hover:underline"
               >
-                <Identity
-                  name={agentName(originatingActor.id) ?? originatingActor.id.slice(0, 8)}
-                  size="sm"
-                  shape="square"
-                />
+                <AgentIdentity agent={agents?.find((agent) => agent.id === originatingActor.id) ?? { id: originatingActor.id, name: agentName(originatingActor.id) ?? "Agent" }} size="sm" />
               </Link>
             ) : (
               <span className="flex min-w-0 items-center gap-1.5">
@@ -2945,7 +3038,7 @@ export function IssueProperties({
                     title={`Archived by ${archivedByName} · ${formatDateTime(issue.archivedAt)}`}
                   >
                     {archivedByAgent
-                      ? <AgentIcon icon={archivedByAgent.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      ? <AgentAvatar agent={archivedByAgent} size={16} className="h-3.5 w-3.5 shrink-0 text-muted-foreground"/>
                       : null}
                     <span className="min-w-0 truncate">
                       {archivedByName}

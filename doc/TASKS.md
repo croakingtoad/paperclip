@@ -23,6 +23,39 @@ granularity.
 
 ---
 
+## Cross-company work
+
+### The boundary
+
+Agent API keys are hard-scoped to one company. If an agent uses its key against
+an endpoint that belongs to a different company, the API returns `403` with
+body `{"error":"Agent key cannot access another company"}`. Holding two keys in the same process does not grant ambient
+authority — only the `companyId` embedded in the presented key is checked.
+
+### The supported path
+
+To let an agent in company A create tasks inside company B:
+
+1. A board user of company B creates a `task_bridge`-scoped key for the
+   relevant company-B agent.
+2. That user shares the key with the company-A agent (typically as a secret).
+3. The company-A agent presents the `task_bridge` key when calling company B's
+   task-creation endpoint.
+
+A `task_bridge` key is narrowly scoped: it can only create tasks under a
+specified parent issue or project. It cannot call company-wide, peer-agent,
+project, runtime, or secret APIs.
+
+Board users can create `task_bridge` keys directly from the agent's **Keys**
+tab in the Board UI (added in LOC-96).
+
+### Where to learn more
+
+See [`packages/adapters/hermes/skills/paperclip-task-bridge/SKILL.md`](../packages/adapters/hermes/skills/paperclip-task-bridge/SKILL.md)
+for the curl incantation and the helper CLI.
+
+---
+
 ## Issues (Core Entity)
 
 An issue is the fundamental unit of work.

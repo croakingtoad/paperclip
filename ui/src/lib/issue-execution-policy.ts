@@ -1,7 +1,8 @@
-import type { IssueExecutionPolicy, IssueExecutionStageParticipant, IssueExecutionStagePrincipal } from "@paperclipai/shared";
+import type { Issue, IssueExecutionPolicy, IssueExecutionStageParticipant, IssueExecutionStagePrincipal, IssueExecutionStageType } from "@paperclipai/shared";
+import { ISSUE_EXECUTION_STAGE_TYPES } from "@paperclipai/shared";
 import { parseAssigneeValue } from "./assignees";
 
-type StageType = "review" | "approval";
+type StageType = IssueExecutionStageType;
 
 function newId() {
   const webCrypto = globalThis.crypto;
@@ -31,6 +32,20 @@ function newId() {
   ].join("-");
 }
 
+/** Stage name as the board says it: "Review pending with …", "Run git now". */
+export const EXECUTION_STAGE_LABEL: Record<StageType, string> = {
+  review: "Review",
+  approval: "Approval",
+  git: "Git",
+};
+
+/** Participant-slot name: the picker row label and its "No …"/"Search …" copy. */
+export const EXECUTION_STAGE_PARTICIPANT_LABEL: Record<StageType, string> = {
+  review: "Reviewers",
+  approval: "Approvers",
+  git: "Git owners",
+};
+
 function principalKey(principal: IssueExecutionStagePrincipal | IssueExecutionStageParticipant) {
   return principal.type === "agent" ? `agent:${principal.agentId}` : `user:${principal.userId}`;
 }
@@ -48,6 +63,25 @@ export function principalFromSelectionValue(value: string): IssueExecutionStageP
 
 export function selectionValueFromPrincipal(principal: IssueExecutionStagePrincipal | IssueExecutionStageParticipant): string {
   return principal.type === "agent" ? `agent:${principal.agentId}` : `user:${principal.userId}`;
+}
+
+/**
+ * LOC-124: true when `userId` is the signed-in board user the current execution
+ * stage is waiting on, so the UI can offer verdict controls instead of leaving
+ * them to guess the magic approval comment.
+ */
+export function isPendingExecutionParticipant(
+  issue: Pick<Issue, "status" | "executionState">,
+  userId: string | null | undefined,
+): boolean {
+  const participant = issue.executionState?.currentParticipant;
+  return Boolean(
+    userId &&
+    issue.status === "in_review" &&
+    issue.executionState?.status === "pending" &&
+    participant?.type === "user" &&
+    participant.userId === userId,
+  );
 }
 
 export function stageParticipantValues(policy: IssueExecutionPolicy | null | undefined, stageType: StageType): string[] {
@@ -76,34 +110,32 @@ function mergeParticipants(
   return participants;
 }
 
+/**
+ * Rebuild the policy from the picker selections. Stages are emitted in
+ * `ISSUE_EXECUTION_STAGE_TYPES` order, which is the order the engine runs them.
+ *
+ * A stage type absent from `stageValues` keeps whatever the existing policy had —
+ * only an explicit empty array clears it. That way a caller that predates a stage
+ * type cannot silently delete it by rebuilding the policy without it.
+ */
 export function buildExecutionPolicy(input: {
   existingPolicy?: IssueExecutionPolicy | null;
-  reviewerValues: string[];
-  approverValues: string[];
+  stageValues: Partial<Record<StageType, string[]>>;
 }): IssueExecutionPolicy | null {
   const mode = input.existingPolicy?.mode ?? "normal";
   const stages: IssueExecutionPolicy["stages"] = [];
   const monitor = input.existingPolicy?.monitor ?? null;
 
-  const existingReviewStage = input.existingPolicy?.stages.find((stage) => stage.type === "review");
-  const reviewParticipants = mergeParticipants(existingReviewStage?.participants, input.reviewerValues);
-  if (reviewParticipants.length > 0) {
+  for (const stageType of ISSUE_EXECUTION_STAGE_TYPES) {
+    const existingStage = input.existingPolicy?.stages.find((stage) => stage.type === stageType);
+    const values = input.stageValues[stageType] ?? stageParticipantValues(input.existingPolicy, stageType);
+    const participants = mergeParticipants(existingStage?.participants, values);
+    if (participants.length === 0) continue;
     stages.push({
-      id: existingReviewStage?.id ?? newId(),
-      type: "review" as const,
+      id: existingStage?.id ?? newId(),
+      type: stageType,
       approvalsNeeded: 1 as const,
-      participants: reviewParticipants,
-    });
-  }
-
-  const existingApprovalStage = input.existingPolicy?.stages.find((stage) => stage.type === "approval");
-  const approvalParticipants = mergeParticipants(existingApprovalStage?.participants, input.approverValues);
-  if (approvalParticipants.length > 0) {
-    stages.push({
-      id: existingApprovalStage?.id ?? newId(),
-      type: "approval" as const,
-      approvalsNeeded: 1 as const,
-      participants: approvalParticipants,
+      participants,
     });
   }
 
