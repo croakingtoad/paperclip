@@ -394,3 +394,54 @@ export async function listOpenCodeModels(): Promise<AdapterModel[]> {
 export function resetOpenCodeModelsCacheForTests() {
   discoveryCache.clear();
 }
+
+export interface OpenCodeGatewayProvider {
+  id: string;
+  baseUrl: string | null;
+}
+
+/**
+ * Display form of a gateway baseURL: scheme, host, port and path only. Userinfo,
+ * query and fragment can carry credentials, and an unresolved {env:NAME}
+ * placeholder says nothing useful, so either yields null instead.
+ */
+function displayGatewayBaseUrl(raw: string): string | null {
+  if (raw.includes("{env:")) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Returns declared gateway providers from PAPERCLIP_OPENCODE_PROVIDERS with
+ * only their id and a sanitized baseUrl — no API keys or other secrets.
+ */
+export function listGatewayProviders(): OpenCodeGatewayProvider[] {
+  const providers = parseProviderConfig(
+    process.env.PAPERCLIP_OPENCODE_PROVIDERS,
+    () => undefined,
+    [],
+  );
+  if (!providers) return [];
+  return Object.entries(providers).map(([id, entry]) => {
+    const opts =
+      entry !== null && typeof entry === "object" && !Array.isArray(entry)
+        ? (entry as Record<string, unknown>).options
+        : null;
+    const baseUrl =
+      opts !== null && typeof opts === "object" && !Array.isArray(opts)
+        ? typeof (opts as Record<string, unknown>).baseURL === "string"
+          ? ((opts as Record<string, unknown>).baseURL as string)
+          : null
+        : null;
+    return { id, baseUrl: baseUrl === null ? null : displayGatewayBaseUrl(baseUrl) };
+  });
+}
