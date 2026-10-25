@@ -24,6 +24,8 @@ export interface AiConnectionPickerProps {
   loading?: boolean;
   error?: string;
   readOnly?: boolean;
+  /** When true, labels the connection as billing/auth only (not the inference path). */
+  billingOnlyLabel?: boolean;
   onChange: (binding: AiConnectionBinding) => void;
   onConnect: () => void;
   onReconnect?: () => void;
@@ -39,6 +41,7 @@ export function AiConnectionPicker({
   loading,
   error,
   readOnly,
+  billingOnlyLabel,
   onChange,
   onConnect,
   onReconnect,
@@ -81,7 +84,7 @@ export function AiConnectionPicker({
           size={32}
         />
         <div className="flex min-w-0 flex-col gap-1">
-        <h3 className="text-sm font-semibold">AI connection</h3>
+        <h3 className="text-sm font-semibold">{billingOnlyLabel ? "Billing & auth" : "AI connection"}</h3>
         <p className="text-xs text-muted-foreground">
           {AI_PROVIDERS[requirement.provider].name}
           {value && value.mode !== "responsible_user" && ` · ${aiMethodLabel(value.provider, value.method)}`}

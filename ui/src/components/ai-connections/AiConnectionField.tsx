@@ -9,7 +9,9 @@ import {
   type AiProvider,
   type AiManagedConnectionSummary,
 } from "@paperclipai/shared";
+import { agentsApi } from "@/api/agents";
 import { aiConnectionsApi } from "@/api/ai-connections";
+import { queryKeys } from "@/lib/queryKeys";
 import { describeError } from "@/api/errors";
 import { useQueryView } from "@/components/QueryView";
 import { AiConnectionSelect } from "./AiConnectionSelect";
@@ -73,6 +75,17 @@ export function AiConnectionField({
   routerAdapterType?: string;
 }) {
   const provider = aiProviderForAdapter(adapterType);
+  const isGatewayModel = adapterType === "opencode_local"
+    && typeof model === "string"
+    && model.length > 0
+    && !model.startsWith("openrouter/");
+  const gatewayProviderId = isGatewayModel ? model!.split("/")[0] : null;
+  const { data: gatewayProviders } = useQuery({
+    queryKey: queryKeys.agents.opencodeGatewayProviders(companyId),
+    queryFn: () => agentsApi.opencodeGatewayProviders(companyId),
+    enabled: isGatewayModel,
+  });
+  const gatewayBaseUrl = gatewayProviders?.find((p) => p.id === gatewayProviderId)?.baseUrl ?? null;
   const returnFocus = useRef<HTMLElement | null>(null);
   const restoreFocus = (event: Event) => { event.preventDefault(); returnFocus.current?.focus(); };
   const [adopting, setAdopting] = useState(false);
@@ -153,6 +166,15 @@ export function AiConnectionField({
         </select>
         {value?.mode === "router" && <span className="text-muted-foreground">New tasks rotate. Existing tasks keep their account.</span>}
       </label>}
+      {isGatewayModel && gatewayProviderId && (
+        <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs space-y-0.5">
+          <p className="font-medium">Inference gateway: {gatewayProviderId}</p>
+          {gatewayBaseUrl && (
+            <p className="text-muted-foreground font-mono">{gatewayBaseUrl}</p>
+          )}
+          <p className="text-muted-foreground">Requests route to this gateway. The connection below handles billing and authentication only.</p>
+        </div>
+      )}
       {value?.mode !== "router" && <AiConnectionSelect
         adapterType={adapterType}
           model={model}
@@ -165,6 +187,7 @@ export function AiConnectionField({
         readOnly={readOnly}
         loading={accounts.isPending || accountsView.kind === "reconnecting"}
         error={accountsView.kind === "error" ? describeError(accounts.error).body : undefined}
+        billingOnlyLabel={isGatewayModel}
         onChange={(binding) =>
           changeBinding(aiConnectionBindingSchema.parse(binding))
         }

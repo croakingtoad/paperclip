@@ -42,6 +42,7 @@ export function AiConnectionSelect({
   onChange,
   adapterType,
   model,
+  billingOnlyLabel,
 }: AiConnectionPickerProps & { adapterType: string; model?: string }) {
   const selectId = useId();
   const personal = personalAiDefault(connections, requirement, currentUserId);
@@ -108,7 +109,7 @@ export function AiConnectionSelect({
   return (
     <div className="space-y-2">
       <label className="text-xs text-muted-foreground" htmlFor={selectId}>
-        Connection
+        {billingOnlyLabel ? "Billing & auth connection" : "Connection"}
       </label>
       <Select
         value={

@@ -280,7 +280,7 @@ import { DEFAULT_CURSOR_LOCAL_MODEL } from "@paperclipai/adapter-cursor-local";
 import { DEFAULT_GEMINI_LOCAL_MODEL } from "@paperclipai/adapter-gemini-local";
 import { DEFAULT_KIMI_LOCAL_MODEL } from "@paperclipai/adapter-kimi-local";
 import { DEFAULT_OPENCODE_LOCAL_MODEL } from "@paperclipai/adapter-opencode-local";
-import { requireOpenCodeModelId } from "@paperclipai/adapter-opencode-local/server";
+import { requireOpenCodeModelId, listGatewayProviders } from "@paperclipai/adapter-opencode-local/server";
 import {
   loadDefaultAgentInstructionsBundle,
   resolveDefaultAgentInstructionsBundleRole,
@@ -3071,6 +3071,14 @@ export function agentRoutes(
     } catch (err) {
       next(err);
     }
+  });
+
+  // Gateway endpoints are instance configuration, so only the people who can
+  // configure agents see them — not every company member or agent key.
+  router.get("/companies/:companyId/adapters/opencode_local/gateway-providers", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    await assertBoardCanManageAgentsForCompany(req, companyId);
+    res.json(listGatewayProviders());
   });
 
   router.get("/companies/:companyId/adapters/:type/models", async (req, res) => {
