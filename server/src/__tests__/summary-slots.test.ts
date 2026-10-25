@@ -632,5 +632,46 @@ describeEmbeddedPostgres("summary slot service", () => {
         ),
       ).rejects.toMatchObject({ status: 403 });
     });
+
+    it("routine path: Summarizer agent generate -> write -> slot returns to idle", async () => {
+      // This is the refresh-stale-summaries flow: the Summarizer calls generate()
+      // as an agent actor (no board userId) to mint its own generation task per stale
+      // slot, then writes the revision in the same way as the manual-generate flow.
+      const companyId = await seedCompany();
+      const projectId = await seedProject(companyId);
+      const summarizerAgentId = await seedSummarizer(companyId);
+      const svc = summarySlotService(db);
+
+      // Summarizer acts as agent actor (not board user) — this mirrors the routine call.
+      const generated = await svc.generate(projectSelector(companyId, projectId), {
+        agentId: summarizerAgentId,
+      });
+
+      expect(generated.alreadyGenerating).toBe(false);
+      expect(generated.slot.status).toBe("generating");
+      expect(generated.slot.generatingIssueId).toBe(generated.generatingIssue.id);
+
+      const generationIssueId = generated.generatingIssue.id;
+
+      // Simulate the Summarizer run checking out its linked generation task.
+      const runId = await seedRun(companyId, summarizerAgentId);
+      await db.update(issues).set({ checkoutRunId: runId }).where(eq(issues.id, generationIssueId));
+
+      const written = await svc.write(
+        {
+          ...projectSelector(companyId, projectId),
+          markdown: "**Nothing needs you.** Quiet scope.",
+          generationIssueId,
+          model: "claude-haiku-4-5",
+        },
+        { agentId: summarizerAgentId, runId },
+      );
+
+      expect(written.slot.status).toBe("idle");
+      expect(written.slot.generatingIssueId).toBeNull();
+      expect(written.slot.lastGeneratedByAgentId).toBe(summarizerAgentId);
+      expect(written.revision.revisionNumber).toBe(1);
+      expect(written.document.body).toContain("Nothing needs you");
+    });
   });
 });
