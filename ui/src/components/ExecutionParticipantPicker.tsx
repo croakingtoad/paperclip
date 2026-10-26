@@ -11,6 +11,7 @@ import {
   buildExecutionPolicy,
   stageParticipantValues,
 } from "../lib/issue-execution-policy";
+import { useExecutionPolicy } from "../hooks/useExecutionPolicy";
 import { cn } from "../lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { User, Eye, ShieldCheck, GitBranch } from "lucide-react";
@@ -46,6 +47,7 @@ export function ExecutionParticipantPicker({
 }: ExecutionParticipantPickerProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const policyAvailable = useExecutionPolicy(issue.executionPolicy).success;
 
   const values = stageParticipantValues(issue.executionPolicy, stageType);
   const { data: companyMembers } = useQuery({
@@ -83,6 +85,7 @@ export function ExecutionParticipantPicker({
   };
 
   const updatePolicy = (nextValues: string[]) => {
+    if (!policyAvailable) return;
     onUpdate({
       executionPolicy: buildExecutionPolicy({
         existingPolicy: issue.executionPolicy ?? null,
@@ -100,6 +103,10 @@ export function ExecutionParticipantPicker({
 
   const label = STAGE_LABEL[stageType];
   const Icon = STAGE_ICON[stageType];
+
+  if (!policyAvailable) {
+    return <span role="status" className="text-xs text-muted-foreground">Execution policy unavailable. Refresh to try again.</span>;
+  }
 
   return (
     <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch(""); }}>

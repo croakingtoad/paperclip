@@ -4,8 +4,10 @@ import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
 
 import {
   PRP_BLOCK_RESULT_PROVIDER_INPUT_SCHEMA,
+  PRP_BLOCK_TOOL_DESCRIPTION,
   PRP_BLOCK_TOOL_NAME,
   PRP_COMPLETION_RESULT_PROVIDER_INPUT_SCHEMA,
+  PRP_COMPLETION_TOOL_DESCRIPTION,
   PRP_COMPLETION_TOOL_NAME,
 } from "../../contracts/completion-result.js";
 
@@ -106,7 +108,7 @@ function normalizeTools(
   const tools: OpenCodeMcpToolDefinition[] = [];
   const seen = new Set<string>();
   for (const raw of input) {
-    const name = typeof raw.name === "string" ? canonicalOpenCodeMcpToolName(raw.name) : "";
+    const name = typeof raw.name === "string" ? raw.name.trim() : "";
     if (!name || seen.has(name)) continue;
     const inputSchema = isRecord(raw.inputSchema) ? structuredClone(raw.inputSchema) : { type: "object" };
     tools.push({
@@ -117,8 +119,8 @@ function normalizeTools(
     seen.add(name);
   }
   if (includeTerminalTools) for (const terminal of [
-    { name: PRP_COMPLETION_TOOL_NAME, description: "Return the semantic completion result.", inputSchema: PRP_COMPLETION_RESULT_PROVIDER_INPUT_SCHEMA },
-    { name: PRP_BLOCK_TOOL_NAME, description: "Return the semantic blocked result.", inputSchema: PRP_BLOCK_RESULT_PROVIDER_INPUT_SCHEMA },
+    { name: PRP_COMPLETION_TOOL_NAME, description: PRP_COMPLETION_TOOL_DESCRIPTION, inputSchema: PRP_COMPLETION_RESULT_PROVIDER_INPUT_SCHEMA },
+    { name: PRP_BLOCK_TOOL_NAME, description: PRP_BLOCK_TOOL_DESCRIPTION, inputSchema: PRP_BLOCK_RESULT_PROVIDER_INPUT_SCHEMA },
   ]) {
     if (!seen.has(terminal.name)) tools.push(terminal);
   }
@@ -216,7 +218,12 @@ async function handleRequest(
   }
   const params = isRecord(message.params) ? message.params : {};
   const rawName = typeof params.name === "string" ? params.name : "";
-  const tool = canonicalOpenCodeMcpToolName(rawName);
+  // A declared operation may itself start with paperclip_. Preserve that
+  // authority identity before accepting an OpenCode transport prefix alias.
+  const exactName = rawName.trim();
+  const tool = context.admittedTools.some(entry => entry.name === exactName)
+    ? exactName
+    : canonicalOpenCodeMcpToolName(exactName);
   if (!context.admittedTools.some((entry) => entry.name === tool)) {
     writeRpc(response, id, { isError: true, content: [{ type: "text", text: "Unsupported tool." }] });
     return;
