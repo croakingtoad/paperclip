@@ -465,6 +465,60 @@ describe("agent routes adapter validation", () => {
     expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
   });
 
+  it("clears a bound AI connection when an adapter switch sends aiConnection null", async () => {
+    // Switching adapter types invalidates the AI connection bound to the old
+    // adapter's provider. The form sends an explicit null (undefined is dropped
+    // by JSON.stringify) so the route can tell "clear it" apart from "leave it
+    // alone". Without the null the route re-injects the stale binding and the
+    // compatibility check rejects the save.
+    const agentId = "11111111-1111-4111-8111-111111111111";
+    mockAgentService.getById.mockResolvedValue({
+      id: agentId,
+      companyId: "company-1",
+      name: "Claude",
+      urlKey: "claude",
+      role: "engineer",
+      title: null,
+      icon: null,
+      status: "idle",
+      reportsTo: null,
+      capabilities: null,
+      adapterType: "claude_local",
+      adapterConfig: { model: "claude-sonnet-4-6" },
+      runtimeConfig: {
+        aiConnection: { provider: "anthropic", method: "subscription", mode: "responsible_user" },
+      },
+      budgetMonthlyCents: 0,
+      spentMonthlyCents: 0,
+      pauseReason: null,
+      pausedAt: null,
+      permissions: { canCreateAgents: false },
+      lastHeartbeatAt: null,
+      metadata: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const app = await createApp();
+    const res = await requestApp(app, (baseUrl) =>
+      request(baseUrl)
+        .patch(`/api/agents/${agentId}`)
+        .send({
+          adapterType: "opencode_local",
+          adapterConfig: { model: "openai/gpt-5.4" },
+          runtimeConfig: { aiConnection: null },
+        }),
+    );
+
+    // Not 400 (schema rejects null) and not 422 (stale binding re-injected and
+    // failing the compatibility check).
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const patch = mockAgentService.update.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(patch.adapterType).toBe("opencode_local");
+    // null is a wire signal only; the stored runtimeConfig carries no aiConnection key.
+    const runtimeConfig = patch.runtimeConfig as Record<string, unknown>;
+    expect(runtimeConfig).not.toHaveProperty("aiConnection");
+  });
+
   it("isolates CODEX_HOME when updating a codex_local agent to set its own OPENAI_API_KEY", async () => {
     const agentId = "11111111-1111-4111-8111-111111111111";
     const app = await createApp();

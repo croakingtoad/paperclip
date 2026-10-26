@@ -70,7 +70,8 @@ export const createAgentInstructionsBundleSchema = z.object({
 });
 
 export const agentRuntimeConfigSchema = z.object({
-  aiConnection: aiConnectionBindingSchema.optional(),
+  // null is the explicit "clear the binding" wire signal; undefined is dropped by JSON.stringify.
+  aiConnection: aiConnectionBindingSchema.nullable().optional(),
   debug: z.object({
     providerTrace: z.literal("raw").optional(),
   }).strict().optional(),
