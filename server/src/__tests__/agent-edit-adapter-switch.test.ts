@@ -197,7 +197,14 @@ describe("re-injection guard normalizes existingHarness before comparing (LOC-69
   });
 });
 
-const OPENAI_BINDING: AiConnectionBinding = { provider: "openai", method: "api_key", mode: "responsible_user" };
+// mode:"shared" (not "responsible_user") so isAiConnectionCompatible hits the early-return at
+// ai-connections.ts:133 and returns true for both codex_local and opencode_local — only the
+// agentHarnessType() comparison can block re-injection, which is exactly what MAJ-1 tests.
+const OPENAI_BINDING: AiConnectionBinding = {
+  provider: "openai", method: "api_key", mode: "shared",
+  connectionId: "00000000-0000-4000-8000-000000000010",
+  grantId: "00000000-0000-4000-8000-000000000011",
+};
 
 /** A paperclip_runner/codex agent carrying a persisted OpenAI binding, edited by its company owner. */
 async function runnerCodexFixture() {
@@ -231,11 +238,11 @@ async function runnerCodexFixture() {
 
 describe("paperclip_runner provider switch with stale AI connection (MAJ-1)", () => {
   it("does not re-inject the stale openai binding when switching codex→opencode provider", async () => {
-    // MAJ-1: adapterType stays "paperclip_runner" for both codex and opencode, so the old
-    // guard (nextAdapterType === existing.adapterType) always fired and re-injected the stale
-    // openai binding, which isAiConnectionCompatible then rejected for opencode_local with 422.
-    // The fix compares effective harnesses (codex_local vs opencode_local) via agentHarnessType
-    // so provider switches that change the effective harness skip re-injection.
+    // MAJ-1: adapterType stays "paperclip_runner" for both codex and opencode providers, but
+    // the effective harness changes (codex_local→opencode_local). The guard's agentHarnessType()
+    // comparison must detect this and suppress re-injection. OPENAI_BINDING uses mode:"shared"
+    // so isAiConnectionCompatible returns true for both harnesses (ai-connections.ts:133) —
+    // only the harness comparison can block re-injection, isolating the MAJ-1 fix.
     const f = await runnerCodexFixture();
     const response = await request(f.app).patch(`/api/agents/${f.agentId}`).send({
       adapterConfig: { provider: "opencode", model: "openai/gpt-5.4" },
