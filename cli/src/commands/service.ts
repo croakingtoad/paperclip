@@ -9,7 +9,6 @@ import { ensureServiceShim } from "../onboard-service.js";
 import { buildLocalHealthUrl } from "../utils/health-url.js";
 
 type CommonOptions = { instance?: string; json?: boolean };
-type CommonOptionsWithServiceType = CommonOptions & { systemService?: boolean; userService?: boolean };
 type HealthResult = { ok: boolean; serverVersion: string | null; error?: string };
 
 function output(value: unknown, json: boolean | undefined): void {
@@ -18,8 +17,8 @@ function output(value: unknown, json: boolean | undefined): void {
   else console.log(JSON.stringify(value, null, 2));
 }
 
-async function resolveManager(opts: CommonOptionsWithServiceType): Promise<ServiceManager | null> {
-  const detection = await detectServiceManager({ instanceId: opts.instance, preferSystem: opts.systemService });
+async function resolveManager(opts: CommonOptions): Promise<ServiceManager | null> {
+  const detection = await detectServiceManager({ instanceId: opts.instance });
   if (detection.supported) return detection.manager;
   output({ supported: false, message: detection.reason }, opts.json);
   return null;
@@ -168,9 +167,7 @@ export function registerServiceCommands(program: Command): void {
   const service = program.command("service").description("Manage Paperclip as a background service");
   const common = (command: Command) => command
     .option("-i, --instance <id>", "Local instance id (default: default)")
-    .option("--json", "Print machine-readable JSON", false)
-    .option("--user-service", "Force use of systemd user service (default if available)", false)
-    .option("--system-service", "Use system-wide systemd service (requires sudo)", false);
+    .option("--json", "Print machine-readable JSON", false);
 
   common(service.command("install").description("Install and register the background service"))
     .option("--no-start-now", "Install without starting now")
