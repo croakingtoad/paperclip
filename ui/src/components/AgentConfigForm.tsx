@@ -187,6 +187,27 @@ export function resolvePaperclipRunnerTransitionModel(
   return paperclipRunnerTransitionConfig(previousAdapterType, previousModel).model as string;
 }
 
+/**
+ * An AI connection binds to the *effective harness* a configuration resolves to,
+ * not to its adapter type, so a switch that lands on the same harness
+ * (claude_local <-> paperclip_runner + acpx/claude) leaves the binding valid and it
+ * must survive the switch. `aiRoutingHarness` is the same mapping the server uses
+ * to decide compatibility, so the form cannot drift from it.
+ *
+ * A configuration that resolves to no harness never counts as a match — it cannot
+ * carry a connection forward even to another unresolvable configuration.
+ */
+export function adapterSwitchPreservesAiConnection(
+  previousAdapterType: string,
+  previousConfig: { provider?: unknown; acpxAgent?: unknown },
+  nextAdapterType: string,
+  nextConfig: { provider?: unknown; acpxAgent?: unknown },
+): boolean {
+  const previous = aiRoutingHarness(previousAdapterType, previousConfig.provider, previousConfig.acpxAgent);
+  const next = aiRoutingHarness(nextAdapterType, nextConfig.provider, nextConfig.acpxAgent);
+  return previous !== "unsupported" && previous === next;
+}
+
 function isOverlayDirty(o: AgentConfigOverlay): boolean {
   return (
     Object.keys(o.identity).length > 0 ||
@@ -1812,45 +1833,62 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
                   } else {
                     // Clear all adapter config and explicitly blank out model + effort/mode keys
                     // so the old adapter's values don't bleed through via eff()
+                    const nextAdapterConfig: Record<string, unknown> = {
+                      model:
+                        t === "gemini_local"
+                          ? DEFAULT_GEMINI_LOCAL_MODEL
+                          : t === "kimi_local"
+                            ? DEFAULT_KIMI_LOCAL_MODEL
+                          : t === "opencode_local"
+                            ? DEFAULT_OPENCODE_LOCAL_MODEL
+                          : t === "cursor"
+                            ? DEFAULT_CURSOR_LOCAL_MODEL
+                          : external ? ""
+                          : t === "paperclip_runner"
+                            ? resolvePaperclipRunnerTransitionModel(adapterType, config.model)
+                            : "",
+                      effort: "",
+                      modelReasoningEffort: "",
+                      variant: "",
+                      mode: "",
+                      ...(external
+                          ? { provider: muse ? "muse" : "openai_dot", lifecycleMode: "per_turn", allowUnmeteredProvider: false, ...(dot ? { dotAttachmentAccess: false, dotWorkspaceAccess: false } : {}) }
+                        : t === "paperclip_runner"
+                          ? {
+                              ...paperclipRunnerTransitionConfig(adapterType, eff("adapterConfig", "model", config.model)),
+                            }
+                        : {}),
+                    };
+                    // The AI connection is bound to the adapter's effective harness,
+                    // not to its adapter type. A switch that resolves to the same
+                    // harness leaves the binding valid, so keep it rather than making
+                    // the operator re-pick a connection that was never rejected. Only
+                    // a real harness change clears it, and it clears in the overlay
+                    // (not just in the UI) so the PATCH tells the server to drop the
+                    // binding instead of re-sending one the new harness rejects at
+                    // validation.
+                    const keepAiConnection = adapterSwitchPreservesAiConnection(
+                      adapterType,
+                      {
+                        provider: eff("adapterConfig", "provider", config.provider),
+                        acpxAgent: eff("adapterConfig", "acpxAgent", config.acpxAgent),
+                      },
+                      t,
+                      nextAdapterConfig,
+                    );
                     setOverlay((prev) => ({
                       ...prev,
                       adapterType: t,
                       runner: ["codex_local", "claude_local", "opencode_local", "pi_local"].includes(t) ? "auto" : undefined,
-                      adapterConfig: {
-                        model:
-                          t === "gemini_local"
-                            ? DEFAULT_GEMINI_LOCAL_MODEL
-                            : t === "kimi_local"
-                              ? DEFAULT_KIMI_LOCAL_MODEL
-                            : t === "opencode_local"
-                              ? DEFAULT_OPENCODE_LOCAL_MODEL
-                            : t === "cursor"
-                              ? DEFAULT_CURSOR_LOCAL_MODEL
-                            : external ? ""
-                            : t === "paperclip_runner"
-                              ? resolvePaperclipRunnerTransitionModel(adapterType, config.model)
-                              : "",
-                        effort: "",
-                        modelReasoningEffort: "",
-                        variant: "",
-                        mode: "",
-                        ...(external
-                            ? { provider: muse ? "muse" : "openai_dot", lifecycleMode: "per_turn", allowUnmeteredProvider: false, ...(dot ? { dotAttachmentAccess: false, dotWorkspaceAccess: false } : {}) }
-                          : t === "paperclip_runner"
-                            ? {
-                                ...paperclipRunnerTransitionConfig(adapterType, eff("adapterConfig", "model", config.model)),
-                              }
-                          : {}),
-                      },
-                      // The AI connection is bound to the old adapter's provider,
-                      // so it cannot survive the switch. Clear it in the overlay
-                      // (not just in the UI) so the PATCH tells the server to drop
-                      // the binding instead of re-sending one the new adapter type
-                      // rejects at validation.
-                      runtime: {
-                        ...prev.runtime,
-                        runtimeConfig: { ...runtimeConfig, aiConnection: null },
-                      },
+                      adapterConfig: nextAdapterConfig,
+                      ...(keepAiConnection
+                        ? {}
+                        : {
+                            runtime: {
+                              ...prev.runtime,
+                              runtimeConfig: { ...runtimeConfig, aiConnection: null },
+                            },
+                          }),
                     }));
                   }
                 }}
