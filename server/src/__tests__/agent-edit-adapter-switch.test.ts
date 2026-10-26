@@ -196,3 +196,54 @@ describe("re-injection guard normalizes existingHarness before comparing (LOC-69
     expect((await stored(f.agentId)).runtimeConfig.aiConnection).toEqual(f.routerBinding);
   });
 });
+
+const OPENAI_BINDING: AiConnectionBinding = { provider: "openai", method: "api_key", mode: "responsible_user" };
+
+/** A paperclip_runner/codex agent carrying a persisted OpenAI binding, edited by its company owner. */
+async function runnerCodexFixture() {
+  const companyId = randomUUID();
+  const agentId = randomUUID();
+  const userId = `owner-${companyId}`;
+  await db.insert(companies).values({ id: companyId, name: "Runner switch test", issuePrefix: `R${companyId.slice(0, 7)}`, defaultResponsibleUserId: userId });
+  await db.insert(companyMemberships).values({ companyId, principalType: "user", principalId: userId, membershipRole: "owner", status: "active" });
+  await db.insert(principalPermissionGrants).values({ companyId, principalType: "user", principalId: userId, permissionKey: "agents:configure" });
+  await db.insert(agents).values({
+    id: agentId, companyId, name: "Codex agent", role: "engineer", adapterType: "paperclip_runner",
+    // cwd is set to the isolated temp home so assertManagedAiProjectAuth scans only that tree,
+    // not the host user's ~/.codex/config.toml which may contain model_provider= entries.
+    adapterConfig: { provider: "codex", model: "o4-mini", cwd: home },
+    runtimeConfig: { aiConnection: OPENAI_BINDING },
+  });
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    req.actor = { type: "board", source: "session", userId, companyIds: [companyId], memberships: [{ companyId, membershipRole: "owner", status: "active" }] };
+    next();
+  });
+  app.use("/api", agentRoutes(db));
+  app.use(errorHandler);
+  await aiConnectionService(db).save(companyId, userId, {
+    provider: "openai", method: "api_key", name: "Owner's OpenAI", ownership: "personal",
+    agentIds: [agentId], allAgents: false, apiKey: "fixture-openai-key",
+  }, "fixture-openai-key");
+  return { app, companyId, agentId, userId };
+}
+
+describe("paperclip_runner provider switch with stale AI connection (MAJ-1)", () => {
+  it("does not re-inject the stale openai binding when switching codex→opencode provider", async () => {
+    // MAJ-1: adapterType stays "paperclip_runner" for both codex and opencode, so the old
+    // guard (nextAdapterType === existing.adapterType) always fired and re-injected the stale
+    // openai binding, which isAiConnectionCompatible then rejected for opencode_local with 422.
+    // The fix compares effective harnesses (codex_local vs opencode_local) via agentHarnessType
+    // so provider switches that change the effective harness skip re-injection.
+    const f = await runnerCodexFixture();
+    const response = await request(f.app).patch(`/api/agents/${f.agentId}`).send({
+      adapterConfig: { provider: "opencode", model: "openai/gpt-5.4" },
+      runtimeConfig: {},  // omits aiConnection — buggy guard would inject stale openai binding
+    });
+
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(response.body.runtimeConfig?.aiConnection).toBeUndefined();
+    expect((await stored(f.agentId)).runtimeConfig).not.toHaveProperty("aiConnection");
+  });
+});

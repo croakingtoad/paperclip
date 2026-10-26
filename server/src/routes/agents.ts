@@ -5377,8 +5377,6 @@ export function agentRoutes(
     if (loaded.interaction.status !== "pending") throw conflict("Connection intent is already resolved");
     const setup = await intents.setupOptions(interactionId);
     if (!setup.aiConnectionRequiresAdoption || !setup.aiConnection) throw conflict("The agent’s AI configuration changed. Reload the task and try again.");
-    const agentAdapterCfg = agent.adapterConfig as Record<string, unknown>;
-    if (!isAiConnectionCompatible(setup.aiConnection, agent.adapterType, agentAdapterCfg.model, agentAdapterCfg.provider, agentAdapterCfg.acpxAgent)) throw conflict("The agent AI configuration changed. Reload the task and try again.");
     // Probe in the agent’s execution environment without installing access.
     // The binding, install, audit, and card resolution commit together below.
     const validatedConnection = await validateManagedAgentBinding(req, agent.companyId, agent.id, agent.adapterType, agent.adapterConfig, setup.aiConnection, agent.defaultEnvironmentId, true, true);
