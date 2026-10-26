@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   assertForegroundRunAllowed,
   detectServiceManager,
@@ -14,6 +14,16 @@ import {
   type CommandRunner,
   type ServiceManager,
 } from "../services/service-manager.js";
+
+// /run/user is root-owned and logind-managed, so a test cannot plant a
+// foreign-owned directory there. Routing statSync through a spy lets the
+// ownership guard see a real Stats object from a path we do control.
+const { statSyncSpy } = vi.hoisted(() => ({ statSyncSpy: vi.fn() }));
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  statSyncSpy.mockImplementation(actual.statSync);
+  return { ...actual, statSync: statSyncSpy };
+});
 
 const temporaryDirectories: string[] = [];
 
@@ -152,6 +162,43 @@ describe("user runtime directory recovery", () => {
     } finally {
       if (saved === undefined) delete process.env.XDG_RUNTIME_DIR;
       else process.env.XDG_RUNTIME_DIR = saved;
+    }
+  });
+
+  it("refuses a runtime directory owned by another user", async () => {
+    const foreignDirectory = await temporaryDirectory();
+    const savedRuntimeDir = process.env.XDG_RUNTIME_DIR;
+    const savedGetuid = process.getuid;
+    const uid = savedGetuid?.call(process);
+    if (uid === undefined) return;
+    delete process.env.XDG_RUNTIME_DIR;
+    const foreignStats = statSync(foreignDirectory);
+    process.getuid = () => uid + 1;
+    statSyncSpy.mockImplementationOnce(() => foreignStats);
+    try {
+      expect(ensureUserRuntimeDir()).toBeNull();
+      expect(process.env.XDG_RUNTIME_DIR).toBeUndefined();
+    } finally {
+      process.getuid = savedGetuid;
+      if (savedRuntimeDir === undefined) delete process.env.XDG_RUNTIME_DIR;
+      else process.env.XDG_RUNTIME_DIR = savedRuntimeDir;
+    }
+  });
+
+  it("refuses a runtime path that is not a directory", async () => {
+    const file = path.join(await temporaryDirectory(), "not-a-directory");
+    await fs.writeFile(file, "");
+    const savedRuntimeDir = process.env.XDG_RUNTIME_DIR;
+    if (process.getuid === undefined) return;
+    delete process.env.XDG_RUNTIME_DIR;
+    const fileStats = statSync(file);
+    statSyncSpy.mockImplementationOnce(() => fileStats);
+    try {
+      expect(ensureUserRuntimeDir()).toBeNull();
+      expect(process.env.XDG_RUNTIME_DIR).toBeUndefined();
+    } finally {
+      if (savedRuntimeDir === undefined) delete process.env.XDG_RUNTIME_DIR;
+      else process.env.XDG_RUNTIME_DIR = savedRuntimeDir;
     }
   });
 
