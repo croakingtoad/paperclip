@@ -137,3 +137,62 @@ describe("switching an agent's harness with a stale AI connection binding", () =
     }
   });
 });
+
+/** A paperclip_runner agent carrying a router binding, edited by its company owner. */
+async function runnerFixture(adapterConfig: Record<string, unknown>) {
+  const companyId = randomUUID();
+  const agentId = randomUUID();
+  const userId = `owner-${companyId}`;
+  const routerBinding = { mode: "router" as const, connectionId: "00000000-0000-4000-8000-000000000099" };
+  await db.insert(companies).values({ id: companyId, name: "Runner guard test", issuePrefix: `R${companyId.slice(0, 7)}`, defaultResponsibleUserId: userId });
+  await db.insert(companyMemberships).values({ companyId, principalType: "user", principalId: userId, membershipRole: "owner", status: "active" });
+  await db.insert(principalPermissionGrants).values({ companyId, principalType: "user", principalId: userId, permissionKey: "agents:configure" });
+  await db.insert(agents).values({
+    id: agentId, companyId, name: "Codex Runner", role: "engineer",
+    adapterType: "paperclip_runner",
+    adapterConfig,
+    runtimeConfig: { aiConnection: routerBinding, heartbeat: { enabled: true, intervalSec: 300 } },
+  });
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    req.actor = { type: "board", source: "session", userId, companyIds: [companyId], memberships: [{ companyId, membershipRole: "owner", status: "active" }] };
+    next();
+  });
+  app.use("/api", agentRoutes(db));
+  app.use(errorHandler);
+  return { app, companyId, agentId, userId, routerBinding };
+}
+
+describe("re-injection guard normalizes existingHarness before comparing (LOC-693)", () => {
+  it("preserves AI binding for runner with acpx/codex stored adapterConfig on harness-preserving PATCH", async () => {
+    // LOC-693: stored {provider:"acpx",acpxAgent:"codex"} normalizes to {provider:"codex"}.
+    // The re-injection guard must normalize existing.adapterConfig before comparing harnesses
+    // so the binding is not silently dropped when the PATCH sends the same raw config.
+    const f = await runnerFixture({ provider: "acpx", acpxAgent: "codex", model: "gpt-5.5" });
+    const response = await request(f.app).patch(`/api/agents/${f.agentId}`).send({
+      adapterType: "paperclip_runner",
+      adapterConfig: { provider: "acpx", acpxAgent: "codex", model: "gpt-5.5" },
+      runtimeConfig: { heartbeat: { enabled: true, intervalSec: 300 } },
+    });
+
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(response.body.runtimeConfig.aiConnection).toEqual(f.routerBinding);
+    expect((await stored(f.agentId)).runtimeConfig.aiConnection).toEqual(f.routerBinding);
+  });
+
+  it("preserves AI binding for runner with provider-less stored adapterConfig on harness-preserving PATCH", async () => {
+    // LOC-693: stored {} (provider-less) normalizes to {provider:"codex"}.
+    // Harness must agree on both sides of the comparison so the binding is preserved.
+    const f = await runnerFixture({});
+    const response = await request(f.app).patch(`/api/agents/${f.agentId}`).send({
+      adapterType: "paperclip_runner",
+      adapterConfig: {},
+      runtimeConfig: { heartbeat: { enabled: true, intervalSec: 300 } },
+    });
+
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(response.body.runtimeConfig.aiConnection).toEqual(f.routerBinding);
+    expect((await stored(f.agentId)).runtimeConfig.aiConnection).toEqual(f.routerBinding);
+  });
+});
