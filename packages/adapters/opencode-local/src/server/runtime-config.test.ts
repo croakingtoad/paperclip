@@ -72,7 +72,7 @@ describe("prepareOpenCodeRuntimeConfig", () => {
         name: "Bifrost EU",
         options: {
           baseURL: "http://gateway.example.svc.cluster.local:8080/v1",
-          apiKey: "{env:ANTHROPIC_API_KEY}",
+          apiKey: "{env:TEST_FAKE_PROVIDER_KEY}",
         },
         models: { "example/model-a": { name: "Model A" } },
       },
