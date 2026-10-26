@@ -7,6 +7,7 @@ import { voiceSessionRoutes, voiceWebhookRoutes } from "./routes/voice-sessions.
 import { eq } from "drizzle-orm";
 import { chatEndpoints } from "@paperclipai/db";
 import { fastResponseRoutes } from "./routes/fast-responses.js";
+import { hotReloadRoutes } from "./routes/hot-reload.js";
 import { fastResponseService } from "./services/fast-responses.js";
 import { createDeliveryWorkCoordinator } from "./services/delivery-work-coordinator.js";
 import { DELIVERY_QUEUES } from "./services/delivery-work-notifications.js";
@@ -680,6 +681,7 @@ export async function createApp(
   api.use(boardMutationGuard());
   api.use("/health", health);
   api.use(openApiRoutes());
+  api.use(hotReloadRoutes());
   api.use("/cloud", cloudRoutes());
   api.use("/companies", companyRoutes(db, opts.storageService));
   api.use(llmRoutes(db));
