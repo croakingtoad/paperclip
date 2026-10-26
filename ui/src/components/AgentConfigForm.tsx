@@ -1,5 +1,5 @@
 import { AiConnectionField } from "./ai-connections/AiConnectionField";
-import { aiConnectionBindingSchema } from "@paperclipai/shared";
+import { aiConnectionBindingSchema, resolveEffectiveAdapterType } from "@paperclipai/shared";
 import { testAgentSetup } from "@/lib/test-agent-setup";
 import { setupEfforts } from "../lib/agent-setup-fields";
 import { RuntimeTestCard } from "./RuntimeTestCard";
@@ -181,6 +181,27 @@ export function resolvePaperclipRunnerTransitionModel(
   previousModel: unknown,
 ): string {
   return paperclipRunnerTransitionConfig(previousAdapterType, previousModel).model as string;
+}
+
+/**
+ * An AI connection binds to the *effective harness* a configuration resolves to,
+ * not to its adapter type, so a switch that lands on the same harness
+ * (claude_local <-> paperclip_runner + acpx/claude) leaves the binding valid and it
+ * must survive the switch. `resolveEffectiveAdapterType` is the same mapping the
+ * server uses in `isAiConnectionCompatible`, so the form cannot drift from it.
+ *
+ * A configuration that resolves to no harness never counts as a match — it cannot
+ * carry a connection forward even to another unresolvable configuration.
+ */
+export function adapterSwitchPreservesAiConnection(
+  previousAdapterType: string,
+  previousConfig: { provider?: unknown; acpxAgent?: unknown },
+  nextAdapterType: string,
+  nextConfig: { provider?: unknown; acpxAgent?: unknown },
+): boolean {
+  const previous = resolveEffectiveAdapterType(previousAdapterType, previousConfig.provider, previousConfig.acpxAgent);
+  const next = resolveEffectiveAdapterType(nextAdapterType, nextConfig.provider, nextConfig.acpxAgent);
+  return previous !== "unsupported" && previous === next;
 }
 
 function isOverlayDirty(o: AgentConfigOverlay): boolean {
@@ -1620,46 +1641,63 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
                   } else {
                     // Clear all adapter config and explicitly blank out model + effort/mode keys
                     // so the old adapter's values don't bleed through via eff()
+                    const nextAdapterConfig: Record<string, unknown> = {
+                      model:
+                        t === "gemini_local"
+                          ? DEFAULT_GEMINI_LOCAL_MODEL
+                          : t === "kimi_local"
+                            ? DEFAULT_KIMI_LOCAL_MODEL
+                          : t === "opencode_local"
+                            ? DEFAULT_OPENCODE_LOCAL_MODEL
+                          : t === "cursor"
+                            ? DEFAULT_CURSOR_LOCAL_MODEL
+                          : t === "paperclip_runner"
+                            ? resolvePaperclipRunnerTransitionModel(adapterType, config.model)
+                            : "",
+                      effort: "",
+                      modelReasoningEffort: "",
+                      variant: "",
+                      mode: "",
+                      ...(t === "codex_local"
+                        ? {
+                            dangerouslyBypassApprovalsAndSandbox:
+                              DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX,
+                          }
+                        : t === "paperclip_runner"
+                          ? {
+                              ...paperclipRunnerTransitionConfig(adapterType, eff("adapterConfig", "model", config.model)),
+                            }
+                        : {}),
+                    };
+                    // The AI connection is bound to the adapter's effective harness,
+                    // not to its adapter type. A switch that resolves to the same
+                    // harness leaves the binding valid, so keep it rather than making
+                    // the operator re-pick a connection that was never rejected. Only
+                    // a real harness change clears it, and it clears in the overlay
+                    // (not just in the UI) so the PATCH tells the server to drop the
+                    // binding instead of re-sending one the new harness rejects at
+                    // validation.
+                    const keepAiConnection = adapterSwitchPreservesAiConnection(
+                      adapterType,
+                      {
+                        provider: eff("adapterConfig", "provider", config.provider),
+                        acpxAgent: eff("adapterConfig", "acpxAgent", config.acpxAgent),
+                      },
+                      t,
+                      nextAdapterConfig,
+                    );
                     setOverlay((prev) => ({
                       ...prev,
                       adapterType: t,
-                      adapterConfig: {
-                        model:
-                          t === "gemini_local"
-                            ? DEFAULT_GEMINI_LOCAL_MODEL
-                            : t === "kimi_local"
-                              ? DEFAULT_KIMI_LOCAL_MODEL
-                            : t === "opencode_local"
-                              ? DEFAULT_OPENCODE_LOCAL_MODEL
-                            : t === "cursor"
-                              ? DEFAULT_CURSOR_LOCAL_MODEL
-                            : t === "paperclip_runner"
-                              ? resolvePaperclipRunnerTransitionModel(adapterType, config.model)
-                              : "",
-                        effort: "",
-                        modelReasoningEffort: "",
-                        variant: "",
-                        mode: "",
-                        ...(t === "codex_local"
-                          ? {
-                              dangerouslyBypassApprovalsAndSandbox:
-                                DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX,
-                            }
-                          : t === "paperclip_runner"
-                            ? {
-                                ...paperclipRunnerTransitionConfig(adapterType, eff("adapterConfig", "model", config.model)),
-                              }
-                          : {}),
-                      },
-                      // The AI connection is bound to the old adapter's provider,
-                      // so it cannot survive the switch. Clear it in the overlay
-                      // (not just in the UI) so the PATCH tells the server to drop
-                      // the binding instead of re-sending one the new adapter type
-                      // rejects at validation.
-                      runtime: {
-                        ...prev.runtime,
-                        runtimeConfig: { ...runtimeConfig, aiConnection: null },
-                      },
+                      adapterConfig: nextAdapterConfig,
+                      ...(keepAiConnection
+                        ? {}
+                        : {
+                            runtime: {
+                              ...prev.runtime,
+                              runtimeConfig: { ...runtimeConfig, aiConnection: null },
+                            },
+                          }),
                     }));
                   }
                 }}
@@ -1667,7 +1705,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
             </Field>
           )}
 
-          {!isCreate && selectedCompanyId && <AiConnectionField companyId={selectedCompanyId} agentId={props.agent.id} agentName={props.agent.name} adapterType={adapterType === "paperclip_runner" ? eff("adapterConfig", "provider", config.provider) === "codex" ? "codex_local" : eff("adapterConfig", "provider", config.provider) === "opencode" ? "opencode_local" : eff("adapterConfig", "provider", config.provider) === "acpx" && eff("adapterConfig", "acpxAgent", config.acpxAgent) === "grok" ? "grok_local" : eff("adapterConfig", "provider", config.provider) === "acpx" && eff("adapterConfig", "acpxAgent", config.acpxAgent) === "claude" ? "claude_local" : adapterType : adapterType}
+          {!isCreate && selectedCompanyId && <AiConnectionField companyId={selectedCompanyId} agentId={props.agent.id} agentName={props.agent.name} adapterType={resolveEffectiveAdapterType(adapterType, eff("adapterConfig", "provider", config.provider), eff("adapterConfig", "acpxAgent", config.acpxAgent))}
             value={aiConnectionBindingSchema.safeParse(eff<Record<string, unknown>>("runtime", "runtimeConfig", runtimeConfig)?.aiConnection).data}
             model={String(eff("adapterConfig", "model", config.model) ?? "")} environmentId={currentDefaultEnvironmentId || undefined} legacy
             onChange={binding => mark("runtime", "runtimeConfig", { ...runtimeConfig, aiConnection: binding })} />}
