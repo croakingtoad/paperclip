@@ -108,7 +108,7 @@ export const AI_CONNECTION_CAPABILITIES: Record<
   openrouter: {
     name: "OpenRouter",
     methods: {
-      api_key: { adapters: ["opencode_local", "pi_local"], envKey: "OPENROUTER_API_KEY" },
+      api_key: { adapters: ["opencode_local", "vllm_fleet", "pi_local"], envKey: "OPENROUTER_API_KEY" },
     },
   },
   xai: {
@@ -147,9 +147,10 @@ export function isAiConnectionCompatible(
   return (
     candidates.some((method) => method?.adapters.includes(adapterType)) &&
     (requirement.provider !== "openrouter" ||
-      // opencode_local routes inference through PAPERCLIP_OPENCODE_PROVIDERS (e.g. vllm-local);
+      // These adapters route inference through PAPERCLIP_OPENCODE_PROVIDERS (e.g. vllm-fleet);
       // the openrouter connection is auth/billing only, so gateway model ids lack the "openrouter/" prefix.
       adapterType === "opencode_local" ||
+      adapterType === "vllm_fleet" ||
       (typeof model === "string" && model.startsWith("openrouter/")))
   );
 }

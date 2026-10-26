@@ -117,6 +117,10 @@ import {
   models as openCodeModels,
 } from "@paperclipai/adapter-opencode-local";
 import {
+  listVllmFleetModels,
+  VLLM_FLEET_AGENT_CONFIGURATION_DOC,
+} from "./vllm-fleet.js";
+import {
   execute as openclawGatewayExecute,
   testEnvironment as openclawGatewayTestEnvironment,
 } from "@paperclipai/adapter-openclaw-gateway/server";
@@ -988,6 +992,18 @@ const openCodeLocalAdapter: ServerAdapterModule = {
   agentConfigurationDoc: openCodeAgentConfigurationDoc,
 };
 
+// Same harness as opencode_local, pinned to the vllm-fleet gateway. Spreading
+// keeps execute/skills/session/runtime-command behavior in lockstep; only the
+// model list and the docs are the gateway's own.
+const vllmFleetAdapter: ServerAdapterModule = {
+  ...openCodeLocalAdapter,
+  type: "vllm_fleet",
+  sessionManagement: getAdapterSessionManagement("vllm_fleet") ?? undefined,
+  models: [],
+  listModels: listVllmFleetModels,
+  agentConfigurationDoc: VLLM_FLEET_AGENT_CONFIGURATION_DOC,
+};
+
 const piLocalAdapter: ServerAdapterModule = {
   type: "pi_local",
   runtimeToolDelivery: "environment",
@@ -1027,6 +1043,7 @@ function registerBuiltInAdapters() {
     codexLocalAdapter,
     paperclipRunnerAdapter,
     openCodeLocalAdapter,
+    vllmFleetAdapter,
     piLocalAdapter,
     cursorCloudAdapter,
     cursorLocalAdapter,

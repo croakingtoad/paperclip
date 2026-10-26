@@ -187,7 +187,9 @@ function Setup({
   const [runtimeAiBinding, setRuntimeAiBinding] = useState<AiConnectionBinding | undefined>(() =>
     brandType === "copilot_runtime"
       ? { provider: "github", method: "api_key", mode: "responsible_user" }
-      : brandType === "opencode_local"
+      // vllm_fleet routes inference to its own gateway; the OpenRouter connection
+      // covers billing and attribution exactly as it does for opencode_local.
+      : brandType === "opencode_local" || brandType === "vllm_fleet"
       ? { provider: "openrouter", method: "api_key", mode: "responsible_user" }
       : undefined,
   );
