@@ -535,8 +535,11 @@ describe("managed AI connections", () => {
     // inference routes through PAPERCLIP_OPENCODE_PROVIDERS (e.g. vllm-fleet/qwen3.8-27b).
     expect(isAiConnectionCompatible({ provider: "openrouter", method: "api_key" }, "opencode_local", "vllm-fleet/qwen3.8-27b")).toBe(true);
     expect(isAiConnectionCompatible({ provider: "openrouter", method: "api_key" }, "opencode_local", "openrouter/anthropic/claude-3.5-sonnet")).toBe(true);
-    // vllm_fleet needs BOTH the adapter allow-list entry and the gateway-model exemption;
-    // with only one of them a selectable adapter still 422s on save.
+  });
+  // Kept out of the broader compatibility test so an unrelated failure there cannot mask it:
+  // vllm_fleet needs BOTH the adapter allow-list entry and the gateway-model exemption, and
+  // with only one of them a selectable adapter still 422s on save.
+  it("accepts an OpenRouter connection for vllm_fleet gateway models and still rejects a mismatched provider", () => {
     expect(isAiConnectionCompatible({ provider: "openrouter", method: "api_key" }, "vllm_fleet", "vllm-fleet/qwen3.8-27b")).toBe(true);
     expect(isAiConnectionCompatible({ provider: "anthropic", method: "api_key" }, "vllm_fleet", "vllm-fleet/qwen3.8-27b")).toBe(false);
   });
