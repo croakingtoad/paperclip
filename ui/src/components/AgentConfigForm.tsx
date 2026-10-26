@@ -1209,12 +1209,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
         (overlay.runtime.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? props.agent.runtimeConfig.aiConnection,
       ).data;
       if (props.compactTestFeedback) {
-        const providerAdapter = adapterType === "paperclip_runner"
-          ? adapterConfig.provider === "codex" ? "codex_local"
-            : adapterConfig.provider === "acpx" && adapterConfig.acpxAgent === "grok" ? "grok_local"
-            : adapterConfig.provider === "acpx" && adapterConfig.acpxAgent === "claude" ? "claude_local"
-              : adapterType
-          : adapterType;
+        const providerAdapter = aiRoutingHarness(adapterType, adapterConfig.provider, adapterConfig.acpxAgent);
         return testAgentSetup({ companyId: selectedCompanyId, adapterType, providerAdapter, adapterConfig, agentId, aiConnection, environmentId, ...(isRunnerHarness && (isCreate ? runner !== "auto" : overlay.runner !== undefined) ? { runner } : {}) });
       }
       return agentsApi.testEnvironment(selectedCompanyId, adapterType, { adapterConfig, agentId, aiConnection, environmentId, ...(isRunnerHarness && (isCreate ? runner !== "auto" : overlay.runner !== undefined) ? { runner } : {}) });
