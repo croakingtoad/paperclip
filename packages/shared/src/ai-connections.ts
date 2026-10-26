@@ -116,6 +116,22 @@ export const AI_CONNECTION_CAPABILITIES: Record<
     },
   },
 };
+export function resolveEffectiveAdapterType(
+  adapterType: string,
+  runnerProvider?: unknown,
+  acpxAgent?: unknown,
+): string {
+  if (adapterType !== "paperclip_runner") return adapterType;
+  return runnerProvider === "claude" || (runnerProvider === "acpx" && acpxAgent === "claude")
+    ? "claude_local"
+    : runnerProvider === "acpx" && acpxAgent === "grok"
+      ? "grok_local"
+      : runnerProvider === "codex"
+        ? "codex_local"
+        : runnerProvider === "opencode"
+          ? "opencode_local"
+          : "unsupported";
+}
 export function isAiConnectionCompatible(
   requirement: AiConnectionMetadata | AiConnectionBinding,
   adapterType: string,
@@ -123,7 +139,7 @@ export function isAiConnectionCompatible(
   runnerProvider?: unknown,
   acpxAgent?: unknown,
 ): boolean {
-  adapterType = aiRoutingHarness(adapterType, runnerProvider, acpxAgent);
+  adapterType = resolveEffectiveAdapterType(adapterType, runnerProvider, acpxAgent);
   if ("routing" in requirement && requirement.routing) return requirement.method === "api_key" && isAiRoutingCompatible(requirement.routing, adapterType);
   // A fixed binding contains identity only. The service checks authoritative
   // connection metadata before resolving credentials or running the harness.
