@@ -5619,6 +5619,8 @@ export function agentRoutes(
           !configuringSetup && (!runtimeSettings || changed), configuringSetup, Boolean(runtimeSettings));
       }
     }
+    // null is only a wire signal meaning "clear the binding"; never persist it.
+    if (requestedRuntimeConfig?.aiConnection === null) delete (requestedRuntimeConfig as Record<string, unknown>).aiConnection;
     if (requestedRuntimeConfig) patchData.runtimeConfig = requestedRuntimeConfig;
     if (touchesAdapterConfiguration || Object.prototype.hasOwnProperty.call(patchData, "defaultEnvironmentId")) {
       await assertAgentDefaultEnvironmentSelection(
