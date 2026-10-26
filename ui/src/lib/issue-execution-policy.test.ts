@@ -5,10 +5,87 @@ import { buildExecutionPolicy, isPendingExecutionParticipant } from "./issue-exe
 
 const AGENT_ID = "00000000-0000-4000-8000-000000000001";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const STAGE_ID = "00000000-0000-4000-8000-000000000002";
+const PARTICIPANT_ID = "00000000-0000-4000-8000-000000000003";
+
+describe("reading execution policy defaults", () => {
+  it.each([
+    {},
+    { authorizationPolicy: { trustPreset: "standard" } },
+    { monitor: { nextCheckAt: "2099-01-01T00:00:00.000Z" } },
+    { stages: [{ type: "review" }] },
+  ])("reads schema-valid omitted collections without changing the input: %j", (input) => {
+    expect(issueExecutionPolicySchema.safeParse(input).success).toBe(true);
+    const before = structuredClone(input);
+    expect(stageParticipantValues(input as IssueExecutionPolicy, "review")).toEqual([]);
+    expect(stageParticipantValues(input as IssueExecutionPolicy, "approval")).toEqual([]);
+    expect(input).toEqual(before);
+  });
+
+  it("retains configured reviewers when an unrelated stage omits participants", () => {
+    const policy = {
+      stages: [
+        { type: "approval" },
+        { id: STAGE_ID, type: "review", participants: [
+          { id: PARTICIPANT_ID, type: "agent", agentId: AGENT_ID },
+          { type: "user", userId: "board-reviewer" },
+        ] },
+      ],
+    } as IssueExecutionPolicy;
+    expect(stageParticipantValues(policy, "review")).toEqual([`agent:${AGENT_ID}`, "user:board-reviewer"]);
+    expect(stageParticipantValues(policy, "approval")).toEqual([]);
+  });
+});
+
+// Persisted monitor-only policies can omit fields supplied by schema defaults.
+const monitorOnlyPolicy = {
+  monitor: {
+    nextCheckAt: "2026-10-08T16:00:00.000Z",
+    notes: "Check pull request",
+    scheduledBy: "assignee",
+    kind: "external_service",
+    serviceName: "github-pr",
+    externalRef: "https://github.com/example/repo/pull/1",
+    maxAttempts: 5,
+  },
+} as IssueExecutionPolicy;
+
+describe("stageParticipantValues", () => {
+  it.each(["review", "approval"] as const)("reads %s participants from a monitor-only policy", (stageType) => {
+    expect(issueExecutionPolicySchema.safeParse(monitorOnlyPolicy).success).toBe(true);
+    expect(stageParticipantValues(monitorOnlyPolicy, stageType)).toEqual([]);
+  });
+});
 
 describe("buildExecutionPolicy", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("adds review and approval stages to a monitor-only policy without losing its monitor", () => {
+    const policy = buildExecutionPolicy({
+      existingPolicy: monitorOnlyPolicy,
+      reviewerValues: [`agent:${AGENT_ID}`],
+      approverValues: ["user:local-board"],
+    });
+
+    expect(issueExecutionPolicySchema.safeParse(policy).success).toBe(true);
+    expect(policy?.monitor).toEqual(monitorOnlyPolicy.monitor);
+    expect(stageParticipantValues(policy, "review")).toEqual([`agent:${AGENT_ID}`]);
+    expect(stageParticipantValues(policy, "approval")).toEqual(["user:local-board"]);
+  });
+
+  it("keeps a monitor-only policy when there are no review or approval stages", () => {
+    expect(buildExecutionPolicy({
+      existingPolicy: monitorOnlyPolicy,
+      reviewerValues: [],
+      approverValues: [],
+    })).toEqual({
+      mode: "normal",
+      commentRequired: true,
+      stages: [],
+      monitor: monitorOnlyPolicy.monitor,
+    });
   });
 
   it("generates schema-valid UUIDs when crypto.randomUUID is unavailable", () => {

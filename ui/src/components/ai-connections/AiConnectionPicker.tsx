@@ -28,6 +28,7 @@ export interface AiConnectionPickerProps {
   billingOnlyLabel?: boolean;
   onChange: (binding: AiConnectionBinding) => void;
   onConnect: () => void;
+  onReconnect?: () => void;
   onRetry?: () => void;
 }
 
@@ -43,6 +44,7 @@ export function AiConnectionPicker({
   billingOnlyLabel,
   onChange,
   onConnect,
+  onReconnect,
   onRetry,
 }: AiConnectionPickerProps) {
   const compatible = connections.filter((connection) =>
@@ -121,7 +123,7 @@ export function AiConnectionPicker({
               })),
             ]}
             onSelect={(id) => {
-              if (id === "responsible_user") onChange({provider: requirement.provider, method: personalDefault?.method ?? requirement.method ?? (requirement.provider === "openrouter" ? "api_key" : "subscription"), mode: "responsible_user"});
+              if (id === "responsible_user") onChange({provider: requirement.provider, method: personalDefault?.method ?? requirement.method ?? ((requirement.provider === "openrouter" || requirement.provider === "github") ? "api_key" : "subscription"), mode: "responsible_user"});
               else { const connection = compatible.find((item) => item.id === id)!; select("shared", connection); }
             }}
           />
@@ -131,14 +133,16 @@ export function AiConnectionPicker({
             </p>
           )}
           {!readOnly && (
-            <Button
-              type="button"
-              variant="outline"
-              className="self-end"
-              onClick={onConnect}
-            >
-              Connect another account
-            </Button>
+            <div className="flex justify-end gap-2">
+              {onReconnect && <Button type="button" variant="outline" onClick={onReconnect}>Reconnect account</Button>}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onConnect}
+              >
+                Connect another account
+              </Button>
+            </div>
           )}
         </>
       )}
