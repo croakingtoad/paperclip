@@ -149,7 +149,10 @@ export function projectRoutes(db: Db) {
       resource: { type: "project", companyId: project.companyId, projectId: project.id },
     });
     if (decision.allowed) return true;
-    res.status(403).json({ error: "Project is outside this actor's authorization boundary" });
+    // Mask a denied read as not-found. A 403 here confirms the project exists to
+    // an actor outside its authorization boundary; the list route already hides
+    // the same rows silently via filterProjectsForActor.
+    res.status(404).json({ error: "Project not found" });
     return false;
   }
 
