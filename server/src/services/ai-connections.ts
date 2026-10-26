@@ -22,6 +22,7 @@ import {
   aiConnectionMetadataSchema,
   aiSubscriptionNeedsIsolatedLogin,
   isAiConnectionCompatible,
+  resolveEffectiveAdapterType,
   type AiConnectionBinding,
   type AiConnectionAttribution,
   type AiConnectionMetadata,
@@ -34,12 +35,13 @@ import { forbidden, notFound, unprocessable } from "../errors.js";
 import { logActivity } from "./activity-log.js";
 import { secretService } from "./secrets.js";
 
-const ADAPTER_REQUIRED_PROVIDER: Partial<Record<string, AiProvider>> = {
-  claude_local: "anthropic",
-  codex_local: "openai",
-  opencode_local: "openrouter",
-  grok_local: "xai",
-};
+const ADAPTER_REQUIRED_PROVIDER: Partial<Record<string, AiProvider>> = Object.fromEntries(
+  Object.entries(AI_CONNECTION_CAPABILITIES).flatMap(([provider, cap]) =>
+    Object.values(cap.methods).flatMap((method) =>
+      (method?.adapters ?? []).map((adapter) => [adapter, provider as AiProvider])
+    )
+  )
+);
 
 /** Same human audience displayed by the existing Connections identity controls. */
 function canUseCredential(
@@ -239,17 +241,11 @@ export function aiConnectionService(db: Db) {
         input.acpxAgent,
       )
     ) {
-      let effectiveAdapterType = input.adapterType;
-      if (effectiveAdapterType === "paperclip_runner") {
-        const rp = input.runnerProvider;
-        const ax = input.acpxAgent;
-        effectiveAdapterType =
-          rp === "claude" || (rp === "acpx" && ax === "claude") ? "claude_local"
-          : rp === "acpx" && ax === "grok" ? "grok_local"
-          : rp === "codex" ? "codex_local"
-          : rp === "opencode" ? "opencode_local"
-          : "unsupported";
-      }
+      const effectiveAdapterType = resolveEffectiveAdapterType(
+        input.adapterType,
+        input.runnerProvider,
+        input.acpxAgent,
+      );
       const requiredProvider = ADAPTER_REQUIRED_PROVIDER[effectiveAdapterType];
       if (requiredProvider && requiredProvider !== binding.provider) {
         throw unprocessable(

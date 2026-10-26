@@ -108,6 +108,22 @@ export const AI_CONNECTION_CAPABILITIES: Record<
     },
   },
 };
+export function resolveEffectiveAdapterType(
+  adapterType: string,
+  runnerProvider?: unknown,
+  acpxAgent?: unknown,
+): string {
+  if (adapterType !== "paperclip_runner") return adapterType;
+  return runnerProvider === "claude" || (runnerProvider === "acpx" && acpxAgent === "claude")
+    ? "claude_local"
+    : runnerProvider === "acpx" && acpxAgent === "grok"
+      ? "grok_local"
+      : runnerProvider === "codex"
+        ? "codex_local"
+        : runnerProvider === "opencode"
+          ? "opencode_local"
+          : "unsupported";
+}
 export function isAiConnectionCompatible(
   requirement: AiConnectionMetadata | AiConnectionBinding,
   adapterType: string,
@@ -115,18 +131,7 @@ export function isAiConnectionCompatible(
   runnerProvider?: unknown,
   acpxAgent?: unknown,
 ): boolean {
-  if (adapterType === "paperclip_runner")
-    adapterType =
-      runnerProvider === "claude" ||
-      (runnerProvider === "acpx" && acpxAgent === "claude")
-        ? "claude_local"
-        : runnerProvider === "acpx" && acpxAgent === "grok"
-          ? "grok_local"
-        : runnerProvider === "codex"
-          ? "codex_local"
-          : runnerProvider === "opencode"
-            ? "opencode_local"
-            : "unsupported";
+  adapterType = resolveEffectiveAdapterType(adapterType, runnerProvider, acpxAgent);
   const methods = AI_CONNECTION_CAPABILITIES[requirement.provider].methods;
   const candidates = "mode" in requirement && requirement.mode === "responsible_user"
     ? Object.values(methods)
