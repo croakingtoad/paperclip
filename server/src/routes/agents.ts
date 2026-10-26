@@ -232,7 +232,7 @@ import { DEFAULT_CURSOR_LOCAL_MODEL } from "@paperclipai/adapter-cursor-local";
 import { DEFAULT_GEMINI_LOCAL_MODEL } from "@paperclipai/adapter-gemini-local";
 import { DEFAULT_KIMI_LOCAL_MODEL } from "@paperclipai/adapter-kimi-local";
 import { DEFAULT_OPENCODE_LOCAL_MODEL } from "@paperclipai/adapter-opencode-local";
-import { requireOpenCodeModelId } from "@paperclipai/adapter-opencode-local/server";
+import { requireOpenCodeModelId, listGatewayProviders } from "@paperclipai/adapter-opencode-local/server";
 import {
   loadDefaultAgentInstructionsBundle,
   resolveDefaultAgentInstructionsBundleRole,
@@ -3235,6 +3235,12 @@ export function agentRoutes(
     }
   });
 
+  router.get("/companies/:companyId/adapters/opencode_local/gateway-providers", (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    res.json(listGatewayProviders());
+  });
+
   router.get("/companies/:companyId/adapters/:type/models", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
@@ -5388,7 +5394,9 @@ export function agentRoutes(
     if (loaded.interaction.status !== "pending") throw conflict("Connection intent is already resolved");
     const setup = await intents.setupOptions(interactionId);
     if (!setup.aiConnectionRequiresAdoption || !setup.aiConnection) throw conflict("The agent’s AI configuration changed. Reload the task and try again.");
-    // Probe in the agent's execution environment without installing access.
+    const agentAdapterCfg = agent.adapterConfig as Record<string, unknown>;
+    if (!isAiConnectionCompatible(setup.aiConnection, agent.adapterType, agentAdapterCfg.model, agentAdapterCfg.provider, agentAdapterCfg.acpxAgent)) throw conflict("The agent AI configuration changed. Reload the task and try again.");
+    // Probe in the agent’s execution environment without installing access.
     // The binding, install, audit, and card resolution commit together below.
     const validatedConnectionId = await validateManagedAgentBinding(req, agent.companyId, agent.id, agent.adapterType, agent.adapterConfig, setup.aiConnection, agent.defaultEnvironmentId, true, true);
     if (validatedConnectionId !== connectionId) throw conflict("This is no longer the selected account. Reload the task and try again.");
@@ -5539,8 +5547,8 @@ export function agentRoutes(
         adapterConfig: patchData.adapterConfig,
       });
     }
-    if (existing.runtimeConfig.aiConnection && requestedRuntimeConfig && !requestedRuntimeConfig.aiConnection) requestedRuntimeConfig.aiConnection = existing.runtimeConfig.aiConnection;
-    const nextAiBinding = aiConnectionBindingSchema.safeParse(requestedRuntimeConfig?.aiConnection ?? existing.runtimeConfig.aiConnection).data;
+    if (existing.runtimeConfig.aiConnection && requestedRuntimeConfig && requestedRuntimeConfig.aiConnection === undefined && nextAdapterType === existing.adapterType) requestedRuntimeConfig.aiConnection = existing.runtimeConfig.aiConnection;
+    const nextAiBinding = requestedRuntimeConfig?.aiConnection === null ? undefined : aiConnectionBindingSchema.safeParse(requestedRuntimeConfig?.aiConnection ?? existing.runtimeConfig.aiConnection).data;
     if (nextAiBinding) {
       await assertCanUpdateAgent(req, existing);
       const changed = JSON.stringify(nextAiBinding) !== JSON.stringify(existing.runtimeConfig.aiConnection);

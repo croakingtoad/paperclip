@@ -52,8 +52,8 @@ This routine is **paused by default** and spends no tokens until an operator ena
 ## What this run must do
 
 1. Select summary slots whose scope has changed since their last revision and whose `lastGeneratedAt` is older than `{{staleAfterHours}}` hours. Restrict to `{{scopeKinds}}` when a specific kind is chosen. Cap the set at `{{maxSlots}}`, most-stale first.
-2. For each selected slot, run the `summarize-status` skill as the operating procedure: read the current revision, read the company-scoped state you need to understand where things are, and write one new Markdown revision back to the slot.
-3. Skip slots with no meaningful change since their last revision — do not spend tokens rewriting an unchanged summary.
+2. For each selected slot, call `POST /api/companies/{companyId}/summary-slots/{scopeKind}/{slotKey}/generate` (with `scopeId` in the body when applicable) to mint a proper generation task. This creates a generation issue assigned to you and links it to the slot — which is required for the write gate to pass. Do not skip this step and write directly; the slot write will be rejected without an active generation task.
+3. Process each generation task you just created: run the `summarize-status` skill for that task, write the revision, and mark the task done. Skip slots with no meaningful change since their last revision — do not spend tokens rewriting an unchanged summary.
 
 ## Hard limits for this routine
 
