@@ -38,6 +38,7 @@ const ADAPTER_REQUIRED_PROVIDER: Partial<Record<string, AiProvider>> = {
   claude_local: "anthropic",
   codex_local: "openai",
   opencode_local: "openrouter",
+  vllm_fleet: "openrouter",
   grok_local: "xai",
 };
 

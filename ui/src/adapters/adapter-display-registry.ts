@@ -117,6 +117,11 @@ const adapterDisplayMap: Record<string, AdapterDisplayInfo> = {
     description: "OpenCode multi-provider harness",
     icon: OpenCodeLogoIcon,
   },
+  vllm_fleet: {
+    label: "vLLM Fleet",
+    description: "Self-hosted vLLM gateway",
+    icon: Cpu,
+  },
   pi_local: {
     label: "Pi",
     description: "Pi harness",

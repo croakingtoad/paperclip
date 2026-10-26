@@ -809,6 +809,10 @@ const ADAPTER_DEFAULT_RULES_BY_TYPE: Record<string, Array<{ path: string[]; valu
     { path: ["timeoutSec"], value: 0 },
     { path: ["graceSec"], value: 15 },
   ],
+  vllm_fleet: [
+    { path: ["timeoutSec"], value: 0 },
+    { path: ["graceSec"], value: 15 },
+  ],
   cursor: [
     { path: ["timeoutSec"], value: 0 },
     { path: ["graceSec"], value: 15 },
@@ -3621,12 +3625,13 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
       }
       return;
     }
-    if (adapterType !== "opencode_local") return;
+    // vllm_fleet drives the same binary and needs the same provider/model id.
+    if (adapterType !== "opencode_local" && adapterType !== "vllm_fleet") return;
     try {
       requireOpenCodeModelId(adapterConfig.model);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      throw unprocessable(`Invalid opencode_local adapterConfig: ${reason}`);
+      throw unprocessable(`Invalid ${adapterType} adapterConfig: ${reason}`);
     }
   }
 

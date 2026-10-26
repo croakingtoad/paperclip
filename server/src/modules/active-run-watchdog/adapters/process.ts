@@ -11,6 +11,7 @@ const SESSIONED_LOCAL_ADAPTERS = new Set([
   "hermes_local",
   "kimi_local",
   "opencode_local",
+  "vllm_fleet",
   "pi_local",
 ]);
 

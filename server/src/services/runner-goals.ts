@@ -107,7 +107,8 @@ function capabilityForAgent(agent: AgentBinding): RunnerGoalCapability {
   }
   const directAcp = (agent.adapterType === "codex_local" || agent.adapterType === "claude_local")
     && engine !== "cli" && sessionMode !== "oneshot";
-  const reason = agent.adapterType === "opencode_local"
+  const isOpenCodeHarness = agent.adapterType === "opencode_local" || agent.adapterType === "vllm_fleet";
+  const reason = isOpenCodeHarness
     ? "Unsupported by OpenCode."
     : directAcp
       ? "This direct ACP adapter has no live session goal controller. Use Paperclip Runner with a supported provider."
@@ -127,7 +128,7 @@ function capabilityForAgent(agent: AgentBinding): RunnerGoalCapability {
     maxObjectiveChars: 4_000,
     tokenBudgetControl: false,
     usageReporting: false,
-    reasonCode: agent.adapterType === "opencode_local"
+    reasonCode: isOpenCodeHarness
       ? "opencode_structured_goals_unavailable"
       : directAcp ? "direct_adapter_goal_controller_unavailable" : "persistent_session_goal_extension_required",
     reason,

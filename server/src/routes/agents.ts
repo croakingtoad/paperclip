@@ -2673,12 +2673,13 @@ export function agentRoutes(
       await assertFreshPaperclipRunnerProvider(companyId, adapterType, adapterConfig);
       return;
     }
-    if (adapterType !== "opencode_local") return;
+    // vllm_fleet drives the same binary and needs the same provider/model id.
+    if (adapterType !== "opencode_local" && adapterType !== "vllm_fleet") return;
     try {
       requireOpenCodeModelId(adapterConfig.model);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      throw unprocessable(`Invalid opencode_local adapterConfig: ${reason}`);
+      throw unprocessable(`Invalid ${adapterType} adapterConfig: ${reason}`);
     }
   }
 

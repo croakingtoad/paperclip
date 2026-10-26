@@ -38,7 +38,12 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function mount(adapterType: string, model: string, gatewayProviders = DECLARED_PROVIDERS) {
+function mount(
+  adapterType: string,
+  model: string,
+  gatewayProviders = DECLARED_PROVIDERS,
+  value?: React.ComponentProps<typeof AiConnectionField>["value"],
+) {
   queryClient.setQueryData(
     queryKeys.agents.opencodeGatewayProviders("company-1"),
     gatewayProviders,
@@ -54,6 +59,7 @@ function mount(adapterType: string, model: string, gatewayProviders = DECLARED_P
           agentName="Test Agent"
           adapterType={adapterType}
           model={model}
+          value={value}
           onChange={vi.fn()}
         />
       </QueryClientProvider>,
@@ -70,6 +76,21 @@ describe("AiConnectionField gateway box", () => {
     expect(container.textContent).toContain("http://100.115.234.63:65000/v1");
     expect(container.textContent).toContain("Billing & auth");
     expect(container.textContent).not.toContain("AI connection");
+  });
+
+  it("names the gateway for a vllm_fleet agent and keeps the connection billing-only", () => {
+    const container = mount("vllm_fleet", "vllm-fleet/qwen3.8-27b", DECLARED_PROVIDERS, {
+      provider: "openrouter",
+      method: "api_key",
+      mode: "responsible_user",
+    });
+
+    expect(container.textContent).toContain("Inference gateway: vllm-fleet");
+    expect(container.textContent).toContain("http://100.115.234.63:65000/v1");
+    expect(container.textContent).toContain("Billing & auth");
+    // An OpenRouter connection on a vllm-fleet model must not be reported as
+    // incompatible — that warning is what blocked saving the agent.
+    expect(container.textContent).not.toContain("does not support the current harness");
   });
 
   it("hides gateway box and keeps AI connection heading when model prefix is not a declared provider", () => {

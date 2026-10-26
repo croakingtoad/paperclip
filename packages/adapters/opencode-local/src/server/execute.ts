@@ -54,6 +54,7 @@ import {
 import { isOpenCodeUnknownSessionError, parseOpenCodeJsonl } from "./parse.js";
 import {
   ensureOpenCodeModelConfiguredAndAvailable,
+  isDeclaredGatewayModel,
   isTruthyEnvFlag,
   parseOpenCodeModelsOutput,
   requireOpenCodeModelId,
@@ -109,6 +110,11 @@ export async function ensureRemoteOpenCodeModelConfiguredAndAvailable(input: {
   if (isTruthyEnvFlag(input.env.OPENCODE_ALLOW_ALL_MODELS ?? process.env.OPENCODE_ALLOW_ALL_MODELS)) {
     return;
   }
+
+  // Gateway models declared in PAPERCLIP_OPENCODE_PROVIDERS can never appear in
+  // `opencode models`, so probing for them only yields a false rejection. Same
+  // reasoning as the local ensureOpenCodeModelConfiguredAndAvailable bypass.
+  if (isDeclaredGatewayModel(model, input.env)) return;
 
   const defaultProbeTimeoutSec =
     input.executionTarget.kind === "remote" && input.executionTarget.transport === "sandbox"

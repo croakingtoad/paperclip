@@ -70,6 +70,9 @@ export {
   requireOpenCodeModelId,
   resetOpenCodeModelsCacheForTests,
   listGatewayProviders,
+  listGatewayProviderModels,
+  isDeclaredGatewayModel,
+  VLLM_FLEET_PROVIDER_ID,
   type OpenCodeGatewayProvider,
 } from "./models.js";
 export { parseOpenCodeJsonl, isOpenCodeUnknownSessionError } from "./parse.js";

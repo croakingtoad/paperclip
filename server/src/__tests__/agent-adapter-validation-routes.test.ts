@@ -671,6 +671,34 @@ describe("agent routes adapter validation", () => {
     expect(res.status, JSON.stringify(res.body)).toBe(201);
   });
 
+  it("rejects an unprefixed model on vllm_fleet at the write path, not at run time", async () => {
+    // vllm_fleet drives the opencode binary, so it needs the same provider/model
+    // id the harness does. The UI marks the field required, but the REST boundary
+    // is what the CLI and company import go through: without the guard a bare
+    // "qwen3.8-27b" persists 200 and only fails later, inside execute.
+    const app = await createApp();
+    const res = await requestApp(app, (baseUrl) =>
+      request(baseUrl)
+        .post("/api/companies/company-1/agents")
+        .send({ name: "Bare Model", adapterType: "vllm_fleet", adapterConfig: { model: "qwen3.8-27b" } }),
+    );
+
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(String(res.body.error ?? res.body.message ?? "")).toContain("Invalid vllm_fleet adapterConfig");
+    expect(mockAgentService.create).not.toHaveBeenCalled();
+  });
+
+  it("accepts a gateway-qualified model on vllm_fleet", async () => {
+    const app = await createApp();
+    const res = await requestApp(app, (baseUrl) =>
+      request(baseUrl)
+        .post("/api/companies/company-1/agents")
+        .send({ name: "Fleet Model", adapterType: "vllm_fleet", adapterConfig: { model: "vllm-fleet/qwen3.8-27b" } }),
+    );
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+  });
+
   it("rejects a new paperclip_runner selection while the rollout flag is off", async () => {
     const app = await createApp();
     const res = await requestApp(app, (baseUrl) =>

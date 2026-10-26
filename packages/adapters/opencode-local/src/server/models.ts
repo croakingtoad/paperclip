@@ -9,6 +9,14 @@ import {
 import { isValidOpenCodeModelId } from "../index.js";
 import { parseProviderConfig } from "./runtime-config.js";
 
+/**
+ * Gateway provider ids that Paperclip surfaces as their own adapter rather than
+ * as an OpenCode model prefix (LOC-657). The adapter owns the model list, so
+ * `listOpenCodeModels` must not also offer them.
+ */
+export const VLLM_FLEET_PROVIDER_ID = "vllm-fleet";
+const PROVIDERS_WITH_DEDICATED_ADAPTER = new Set([VLLM_FLEET_PROVIDER_ID]);
+
 const MODELS_CACHE_TTL_MS = 60_000;
 const MODELS_DISCOVERY_TIMEOUT_MS = 20_000;
 // `opencode models` is a lightweight metadata call, but on a shared ollama
@@ -287,6 +295,12 @@ export async function ensureOpenCodeModelConfiguredAndAvailable(input: {
     return [{ id: model, label: model }];
   }
 
+  // A model declared in PAPERCLIP_OPENCODE_PROVIDERS is served by a private
+  // gateway and is resolved from the injected provider block at run time. It can
+  // never appear in `opencode models`, so probing for it only produces a false
+  // "model is unavailable" rejection.
+  if (isDeclaredGatewayModel(model, env)) return [{ id: model, label: model }];
+
   let models: AdapterModel[];
   try {
     models = await discoverOpenCodeModelsCached({
@@ -360,12 +374,10 @@ export async function ensureOpenCodeModelConfiguredAndAvailable(input: {
 // provider block is injected into the runtime opencode.json), so the dropdown was the
 // only place they were invisible. Placeholders are deliberately left unresolved: this
 // list is UI metadata and must never carry a gateway key.
-function declaredProviderModels(): AdapterModel[] {
-  const providers = parseProviderConfig(
-    process.env.PAPERCLIP_OPENCODE_PROVIDERS,
-    () => undefined,
-    [],
-  );
+function declaredProviderModels(
+  raw: string | undefined = process.env.PAPERCLIP_OPENCODE_PROVIDERS,
+): AdapterModel[] {
+  const providers = parseProviderConfig(raw, () => undefined, []);
   if (!providers) return [];
   const declared: AdapterModel[] = [];
   for (const [providerId, entry] of Object.entries(providers)) {
@@ -379,8 +391,37 @@ function declaredProviderModels(): AdapterModel[] {
   return declared;
 }
 
+/** Declared gateway models for one provider id, e.g. the vllm_fleet adapter's list. */
+export function listGatewayProviderModels(providerId: string): AdapterModel[] {
+  return declaredProviderModels().filter((entry) =>
+    entry.id.startsWith(`${providerId}/`),
+  );
+}
+
+/**
+ * True when `model` is declared in PAPERCLIP_OPENCODE_PROVIDERS. Such a model is
+ * served by a private gateway and is resolved at run time from the injected
+ * provider block, so `opencode models` omitting it means nothing. Run env wins
+ * over process env to match prepareRuntimeConfig's own precedence.
+ */
+export function isDeclaredGatewayModel(
+  model: string,
+  env?: Record<string, string>,
+): boolean {
+  const raw =
+    env?.PAPERCLIP_OPENCODE_PROVIDERS ?? process.env.PAPERCLIP_OPENCODE_PROVIDERS;
+  return declaredProviderModels(raw).some((entry) => entry.id === model);
+}
+
 export async function listOpenCodeModels(): Promise<AdapterModel[]> {
-  const declared = declaredProviderModels();
+  // Providers that own a first-class adapter surface are listed there instead;
+  // showing them here too makes the same model selectable from two adapters.
+  const declared = declaredProviderModels().filter(
+    (entry) =>
+      !PROVIDERS_WITH_DEDICATED_ADAPTER.has(
+        entry.id.slice(0, entry.id.indexOf("/")),
+      ),
+  );
   let discovered: AdapterModel[] = [];
   try {
     discovered = await discoverOpenCodeModelsCached();
