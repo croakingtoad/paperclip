@@ -892,6 +892,7 @@ const GIT_SENSITIVE_LOCAL_ADAPTER_TYPES = new Set([
   "hermes_local",
   "kimi_local",
   "opencode_local",
+  "vllm_fleet",
   "pi_local",
 ]);
 export { MAX_TURN_CONTINUATION_RETRY_REASON };
@@ -1283,6 +1284,7 @@ const SESSIONED_LOCAL_ADAPTERS = new Set([
   "hermes_local",
   "kimi_local",
   "opencode_local",
+  "vllm_fleet",
   "pi_local",
 ]);
 // Routes and the scheduler construct separate heartbeatService instances, but

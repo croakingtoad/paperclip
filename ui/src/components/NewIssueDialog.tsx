@@ -955,7 +955,7 @@ export function NewIssueDialog() {
     const validThinkingValues =
       assigneeAdapterType === "codex_local"
         ? codexReasoningEffortOptions(effectiveAssigneeModel)
-        : assigneeAdapterType === "opencode_local"
+        : assigneeAdapterType === "opencode_local" || assigneeAdapterType === "vllm_fleet"
           ? ISSUE_THINKING_EFFORT_OPTIONS.opencode_local
           : ISSUE_THINKING_EFFORT_OPTIONS.claude_local;
     if (!validThinkingValues.some((option) => option.value === assigneeThinkingEffort)) {
@@ -1220,11 +1220,13 @@ export function NewIssueDialog() {
         ? "Codex options"
         : assigneeAdapterType === "opencode_local"
           ? "OpenCode options"
+        : assigneeAdapterType === "vllm_fleet"
+          ? "vLLM Fleet options"
         : "Agent options";
   const thinkingEffortOptions =
     assigneeAdapterType === "codex_local"
       ? codexReasoningEffortOptions(effectiveAssigneeModel)
-      : assigneeAdapterType === "opencode_local"
+      : assigneeAdapterType === "opencode_local" || assigneeAdapterType === "vllm_fleet"
         ? ISSUE_THINKING_EFFORT_OPTIONS.opencode_local
       : ISSUE_THINKING_EFFORT_OPTIONS.claude_local;
   const recentAssigneeIds = useMemo(() => getRecentAssigneeIds(), [newIssueOpen]);

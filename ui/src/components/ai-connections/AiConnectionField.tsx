@@ -31,6 +31,7 @@ export function aiProviderForAdapter(
       claude_local: "anthropic",
       codex_local: "openai",
       opencode_local: "openrouter",
+      vllm_fleet: "openrouter",
       grok_local: "xai",
     } as Record<string, AiProvider>
   )[adapterType];
@@ -59,7 +60,11 @@ export function AiConnectionField({
   readOnly?: boolean;
 }) {
   const provider = aiProviderForAdapter(adapterType);
-  const couldBeGatewayModel = adapterType === "opencode_local"
+  // Both adapters resolve models through PAPERCLIP_OPENCODE_PROVIDERS, so until a
+  // model is chosen we cannot tell a gateway model from an OpenRouter one.
+  const couldRouteViaGateway =
+    adapterType === "opencode_local" || adapterType === "vllm_fleet";
+  const couldBeGatewayModel = couldRouteViaGateway
     && typeof model === "string"
     && model.length > 0
     && !model.startsWith("openrouter/");
@@ -98,7 +103,7 @@ export function AiConnectionField({
     );
   return (
     <div className="space-y-4">
-      {value && (adapterType !== "opencode_local" || Boolean(model)) && !isAiConnectionCompatible(value, adapterType, model) && (
+      {value && (!couldRouteViaGateway || Boolean(model)) && !isAiConnectionCompatible(value, adapterType, model) && (
         <p role="alert" className="text-sm text-destructive">
           This connection does not support the current harness and model. Choose
           a compatible connection before saving.

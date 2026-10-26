@@ -17,7 +17,7 @@ export const EFFORT_LABELS: Record<string, string> = {
 };
 
 const MODEL_ADAPTERS = new Set([
-  "claude_local", "codex_local", "opencode_local", "pi_local", "kimi_local",
+  "claude_local", "codex_local", "opencode_local", "vllm_fleet", "pi_local", "kimi_local",
   "gemini_local", "cursor", "cursor_cloud", "grok_local", "hermes_local", "paperclip_runner",
 ]);
 
@@ -73,7 +73,7 @@ function composerEffortKey(adapterType: string | undefined): string | null {
   if (adapterType === "claude_local" || adapterType === "kimi_local") return "effort";
   if (adapterType === "grok_local") return "reasoningEffort";
   if (adapterType === "pi_local") return "thinking";
-  if (adapterType === "opencode_local") return "variant";
+  if (adapterType === "opencode_local" || adapterType === "vllm_fleet") return "variant";
   return null;
 }
 

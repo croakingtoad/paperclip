@@ -30,6 +30,7 @@ const ENABLED_INVITE_ADAPTERS = new Set([
   "gemini_local",
   "kimi_local",
   "opencode_local",
+  "vllm_fleet",
   "pi_local",
   "cursor",
 ]);

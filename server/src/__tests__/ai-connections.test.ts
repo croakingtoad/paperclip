@@ -532,9 +532,13 @@ describe("managed AI connections", () => {
     expect(isAiConnectionCompatible(binding, "paperclip_runner", "same-model", "acpx", "claude")).toBe(true);
     expect(isAiConnectionCompatible(binding, "paperclip_runner", "same-model", "acpx", "codex")).toBe(false);
     // opencode_local skips the "openrouter/" prefix check: the connection is auth/billing only;
-    // inference routes through PAPERCLIP_OPENCODE_PROVIDERS (e.g. vllm-local/qwen3.8-27b).
-    expect(isAiConnectionCompatible({ provider: "openrouter", method: "api_key" }, "opencode_local", "vllm-local/qwen3.8-27b")).toBe(true);
+    // inference routes through PAPERCLIP_OPENCODE_PROVIDERS (e.g. vllm-fleet/qwen3.8-27b).
+    expect(isAiConnectionCompatible({ provider: "openrouter", method: "api_key" }, "opencode_local", "vllm-fleet/qwen3.8-27b")).toBe(true);
     expect(isAiConnectionCompatible({ provider: "openrouter", method: "api_key" }, "opencode_local", "openrouter/anthropic/claude-3.5-sonnet")).toBe(true);
+    // vllm_fleet needs BOTH the adapter allow-list entry and the gateway-model exemption;
+    // with only one of them a selectable adapter still 422s on save.
+    expect(isAiConnectionCompatible({ provider: "openrouter", method: "api_key" }, "vllm_fleet", "vllm-fleet/qwen3.8-27b")).toBe(true);
+    expect(isAiConnectionCompatible({ provider: "anthropic", method: "api_key" }, "vllm_fleet", "vllm-fleet/qwen3.8-27b")).toBe(false);
   });
   it("does not let a forged delegation bypass human access or accept an expired subscription attempt", async () => {
     const selected = await service.select({ ...input, userId: "alice" });

@@ -71,6 +71,7 @@ describe("built-in runtime connection tool delivery", () => {
     ["kimi_local", "environment"],
     ["openclaw_gateway", "invocation_context"],
     ["opencode_local", "environment"],
+    ["vllm_fleet", "environment"],
     ["paperclip_runner", "environment"],
     ["pi_local", "environment"],
     ["process", "environment"],
@@ -90,6 +91,37 @@ describe("built-in runtime connection tool delivery", () => {
   });
 });
 
+
+describe("vllm_fleet adapter surface", () => {
+  afterEach(() => {
+    delete process.env.PAPERCLIP_OPENCODE_PROVIDERS;
+  });
+
+  // The previous attempt at this feature was UI-only. Agent creation calls
+  // findServerAdapter() and 422s an unresolvable type, and the picker only
+  // renders cards the server returns — so without this the adapter is a label
+  // on a card that never appears, attached to an agent that cannot save.
+  it("resolves as a server adapter so agents on it can be created", () => {
+    const adapter = requireServerAdapter("vllm_fleet");
+    expect(adapter.type).toBe("vllm_fleet");
+    expect(typeof adapter.execute).toBe("function");
+    expect(adapter.sessionManagement?.supportsSessionResume).toBe(true);
+    expect(adapter.agentConfigurationDoc).toContain("vllm-fleet/<model>");
+  });
+
+  it("offers only the gateway's declared models, and none when it is undeclared", async () => {
+    process.env.PAPERCLIP_OPENCODE_PROVIDERS = JSON.stringify({
+      "vllm-fleet": { models: { "qwen3.8-27b": {} } },
+      "eu-gateway": { models: { "bonsai-27b": {} } },
+    });
+    await expect(requireServerAdapter("vllm_fleet").listModels?.()).resolves.toEqual([
+      { id: "vllm-fleet/qwen3.8-27b", label: "vllm-fleet/qwen3.8-27b" },
+    ]);
+
+    delete process.env.PAPERCLIP_OPENCODE_PROVIDERS;
+    await expect(requireServerAdapter("vllm_fleet").listModels?.()).resolves.toEqual([]);
+  });
+});
 
 describe("native ACPX environment checks", () => {
   beforeEach(() => {

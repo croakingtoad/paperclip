@@ -3,9 +3,11 @@ import * as serverUtils from "@paperclipai/adapter-utils/server-utils";
 import {
   discoverOpenCodeModels,
   ensureOpenCodeModelConfiguredAndAvailable,
+  listGatewayProviderModels,
   listOpenCodeModels,
   requireOpenCodeModelId,
   resetOpenCodeModelsCacheForTests,
+  VLLM_FLEET_PROVIDER_ID,
 } from "./models.js";
 
 describe("openCode models", () => {
@@ -28,18 +30,18 @@ describe("openCode models", () => {
     process.env.PAPERCLIP_OPENCODE_COMMAND =
       "__paperclip_missing_opencode_command__";
     process.env.PAPERCLIP_OPENCODE_PROVIDERS = JSON.stringify({
-      "vllm-fleet": {
+      "eu-gateway": {
         npm: "@ai-sdk/openai-compatible",
         options: {
           baseURL: "http://gateway.example/v1",
-          apiKey: "{env:VLLM_FLEET_API_KEY}",
+          apiKey: "{env:EU_GATEWAY_API_KEY}",
         },
         models: { "qwen3.8-27b": {}, "gemma-4-coder": {} },
       },
     });
     await expect(listOpenCodeModels()).resolves.toEqual([
-      { id: "vllm-fleet/gemma-4-coder", label: "vllm-fleet/gemma-4-coder" },
-      { id: "vllm-fleet/qwen3.8-27b", label: "vllm-fleet/qwen3.8-27b" },
+      { id: "eu-gateway/gemma-4-coder", label: "eu-gateway/gemma-4-coder" },
+      { id: "eu-gateway/qwen3.8-27b", label: "eu-gateway/qwen3.8-27b" },
     ]);
   });
 
@@ -48,19 +50,54 @@ describe("openCode models", () => {
       exitCode: 0,
       signal: null,
       timedOut: false,
-      stdout: "openai/gpt-5\nvllm-fleet/qwen3.8-27b\n",
+      stdout: "openai/gpt-5\neu-gateway/qwen3.8-27b\n",
       stderr: "",
       pid: 1,
       startedAt: new Date().toISOString(),
     });
     process.env.PAPERCLIP_OPENCODE_PROVIDERS = JSON.stringify({
-      "vllm-fleet": { models: { "qwen3.8-27b": {}, "bonsai-27b": {} } },
+      "eu-gateway": { models: { "qwen3.8-27b": {}, "bonsai-27b": {} } },
     });
     await expect(listOpenCodeModels()).resolves.toEqual([
+      { id: "eu-gateway/bonsai-27b", label: "eu-gateway/bonsai-27b" },
+      { id: "eu-gateway/qwen3.8-27b", label: "eu-gateway/qwen3.8-27b" },
       { id: "openai/gpt-5", label: "openai/gpt-5" },
-      { id: "vllm-fleet/bonsai-27b", label: "vllm-fleet/bonsai-27b" },
-      { id: "vllm-fleet/qwen3.8-27b", label: "vllm-fleet/qwen3.8-27b" },
     ]);
+  });
+
+  it("omits vllm-fleet models from the OpenCode list — the vllm_fleet adapter owns them", async () => {
+    process.env.PAPERCLIP_OPENCODE_COMMAND =
+      "__paperclip_missing_opencode_command__";
+    process.env.PAPERCLIP_OPENCODE_PROVIDERS = JSON.stringify({
+      "vllm-fleet": { models: { "qwen3.8-27b": {} } },
+      "eu-gateway": { models: { "bonsai-27b": {} } },
+    });
+    await expect(listOpenCodeModels()).resolves.toEqual([
+      { id: "eu-gateway/bonsai-27b", label: "eu-gateway/bonsai-27b" },
+    ]);
+  });
+
+  it("offers exactly the declared models of the requested gateway provider", () => {
+    process.env.PAPERCLIP_OPENCODE_PROVIDERS = JSON.stringify({
+      "vllm-fleet": { models: { "qwen3.8-27b": {}, "gemma-4-coder": {} } },
+      "eu-gateway": { models: { "bonsai-27b": {} } },
+    });
+    expect(listGatewayProviderModels(VLLM_FLEET_PROVIDER_ID)).toEqual([
+      { id: "vllm-fleet/qwen3.8-27b", label: "vllm-fleet/qwen3.8-27b" },
+      { id: "vllm-fleet/gemma-4-coder", label: "vllm-fleet/gemma-4-coder" },
+    ]);
+  });
+
+  it("offers no models when the gateway is not declared, rather than a stale hardcoded list", () => {
+    delete process.env.PAPERCLIP_OPENCODE_PROVIDERS;
+    expect(listGatewayProviderModels(VLLM_FLEET_PROVIDER_ID)).toEqual([]);
+  });
+
+  it("does not treat a provider id prefix as a match", () => {
+    process.env.PAPERCLIP_OPENCODE_PROVIDERS = JSON.stringify({
+      "vllm-fleet-staging": { models: { "qwen3.8-27b": {} } },
+    });
+    expect(listGatewayProviderModels(VLLM_FLEET_PROVIDER_ID)).toEqual([]);
   });
 
   it("ignores a malformed PAPERCLIP_OPENCODE_PROVIDERS instead of failing the dropdown", async () => {
@@ -131,6 +168,75 @@ describe("openCode models", () => {
         label: "anthropic/gateway/some-model",
       },
     ]);
+  });
+
+  it("accepts a declared gateway model the discovery probe cannot see", async () => {
+    // `opencode models` enumerates models.dev and never a private gateway, so a
+    // probe that lists real models but omits the declared one is not evidence
+    // of a misconfiguration. Without this the agent cannot run at all.
+    vi.spyOn(serverUtils, "runChildProcess").mockResolvedValue({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      stdout: "openai/gpt-5\n",
+      stderr: "",
+      pid: 1,
+      startedAt: new Date().toISOString(),
+    });
+    process.env.PAPERCLIP_OPENCODE_PROVIDERS = JSON.stringify({
+      "vllm-fleet": { models: { "qwen3.8-27b": {} } },
+    });
+    await expect(
+      ensureOpenCodeModelConfiguredAndAvailable({
+        model: "vllm-fleet/qwen3.8-27b",
+      }),
+    ).resolves.toEqual([
+      { id: "vllm-fleet/qwen3.8-27b", label: "vllm-fleet/qwen3.8-27b" },
+    ]);
+  });
+
+  it("reads declared providers from the run env in preference to the process env", async () => {
+    vi.spyOn(serverUtils, "runChildProcess").mockResolvedValue({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      stdout: "openai/gpt-5\n",
+      stderr: "",
+      pid: 1,
+      startedAt: new Date().toISOString(),
+    });
+    await expect(
+      ensureOpenCodeModelConfiguredAndAvailable({
+        model: "vllm-fleet/qwen3.8-27b",
+        env: {
+          PAPERCLIP_OPENCODE_PROVIDERS: JSON.stringify({
+            "vllm-fleet": { models: { "qwen3.8-27b": {} } },
+          }),
+        },
+      }),
+    ).resolves.toEqual([
+      { id: "vllm-fleet/qwen3.8-27b", label: "vllm-fleet/qwen3.8-27b" },
+    ]);
+  });
+
+  it("still rejects an undeclared model the probe does not list", async () => {
+    vi.spyOn(serverUtils, "runChildProcess").mockResolvedValue({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      stdout: "openai/gpt-5\n",
+      stderr: "",
+      pid: 1,
+      startedAt: new Date().toISOString(),
+    });
+    process.env.PAPERCLIP_OPENCODE_PROVIDERS = JSON.stringify({
+      "vllm-fleet": { models: { "qwen3.8-27b": {} } },
+    });
+    await expect(
+      ensureOpenCodeModelConfiguredAndAvailable({
+        model: "vllm-fleet/not-served",
+      }),
+    ).rejects.toThrow("Configured OpenCode model is unavailable");
   });
 
   it("still enforces provider/model format when OPENCODE_ALLOW_ALL_MODELS is set", async () => {
