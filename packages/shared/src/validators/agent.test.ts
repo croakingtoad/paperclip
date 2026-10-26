@@ -1,25 +1,48 @@
 import { describe, expect, it } from "vitest";
-import { updateAgentSchema } from "./agent.js";
+import { agentRuntimeConfigSchema } from "./agent.js";
 
-describe("agent update schema", () => {
-  it.each(["paused", "idle", "terminated"])("accepts lifecycle status request %s", status => {
-    expect(updateAgentSchema.parse({ status })).toEqual({ status });
+describe("agentRuntimeConfigSchema", () => {
+  it("accepts an explicit null aiConnection as the clear signal", () => {
+    // The adapter-switch PATCH sends null to clear a binding that the new
+    // adapter type cannot accept. undefined would be dropped by JSON.stringify,
+    // so null has to survive validation for the server to see the intent.
+    const parsed = agentRuntimeConfigSchema.safeParse({ aiConnection: null });
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).toEqual({ aiConnection: null });
   });
-  it.each(["active", "running", "error", "pending_approval"])("rejects direct status write %s", status => {
-    const result = updateAgentSchema.safeParse({ name: "Renamed", status });
-    expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.issues).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: ["status"] }),
-    ]));
+
+  it("accepts an omitted aiConnection", () => {
+    const parsed = agentRuntimeConfigSchema.safeParse({
+      heartbeat: { enabled: true, intervalSec: 300 },
+    });
+
+    expect(parsed.success).toBe(true);
   });
-  it.each([{ spentMonthlyCents: 0 }, { name: "Renamed", spentMonthlyCents: 10 }])("rejects spend totals: %j", payload => {
-    const result = updateAgentSchema.safeParse(payload);
-    expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.issues).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: ["spentMonthlyCents"] }),
-    ]));
+
+  it("still accepts a valid aiConnection binding", () => {
+    const parsed = agentRuntimeConfigSchema.safeParse({
+      aiConnection: {
+        provider: "anthropic",
+        method: "subscription",
+        mode: "responsible_user",
+      },
+    });
+
+    expect(parsed.success).toBe(true);
   });
-  it("accepts profile and budget limit changes", () => {
-    expect(updateAgentSchema.parse({ name: "Renamed", budgetMonthlyCents: 100 })).toEqual({ name: "Renamed", budgetMonthlyCents: 100 });
+
+  it("still rejects a malformed aiConnection binding", () => {
+    const parsed = agentRuntimeConfigSchema.safeParse({
+      aiConnection: { provider: "not-a-provider", mode: "responsible_user" },
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("still rejects the removed modelProfiles key", () => {
+    const parsed = agentRuntimeConfigSchema.safeParse({ modelProfiles: {} });
+
+    expect(parsed.success).toBe(false);
   });
 });

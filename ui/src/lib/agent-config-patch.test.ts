@@ -175,6 +175,33 @@ describe("buildAgentUpdatePatch", () => {
     });
   });
 
+  it("carries an explicit aiConnection clear through to the patch on adapter switch", () => {
+    // The adapter-switch handler writes `aiConnection: null` (not undefined, which
+    // JSON.stringify drops) so the server can tell "clear the binding" apart from
+    // "leave it alone" and does not re-inject the stale, now-incompatible binding.
+    const agent = makeAgent();
+    (agent.runtimeConfig as Record<string, unknown>).aiConnection = { provider: "openrouter" };
+    const runtimeConfig = agent.runtimeConfig as Record<string, unknown>;
+
+    const patch = buildAgentUpdatePatch(
+      agent,
+      makeOverlay({
+        adapterType: "opencode_local",
+        adapterConfig: { model: "gpt-5.4" },
+        runtime: {
+          runtimeConfig: { ...runtimeConfig, aiConnection: null },
+        },
+      }),
+    );
+
+    const patchedRuntimeConfig = patch.runtimeConfig as Record<string, unknown>;
+    expect(patchedRuntimeConfig.aiConnection).toBeNull();
+    // The null must survive serialization, otherwise the server never sees the clear.
+    expect(JSON.parse(JSON.stringify(patch)).runtimeConfig).toHaveProperty("aiConnection", null);
+    // Unrelated runtime config is untouched by the clear.
+    expect(patchedRuntimeConfig.heartbeat).toEqual({ enabled: true, intervalSec: 300 });
+  });
+
   it("preserves paperclip skill-sync selections when changing adapter types", () => {
     // Desired skills are adapter-agnostic (company-level selections) but are
     // persisted inside the per-adapter config under `paperclipSkillSync`. A
