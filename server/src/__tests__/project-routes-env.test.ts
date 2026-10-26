@@ -209,6 +209,22 @@ describe("project env routes", () => {
     );
   });
 
+  it("masks a denied project read as 404 so the project's existence stays hidden", async () => {
+    mockProjectService.getById.mockResolvedValue(buildProject());
+    mockAccessService.decide.mockResolvedValue({
+      allowed: false,
+      action: "project:read",
+      reason: "deny_no_grant",
+      explanation: "Denied by test mock.",
+    });
+
+    const app = await createApp();
+    const res = await request(app).get("/api/projects/project-1");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(404);
+    expect(res.body).toEqual({ error: "Project not found" });
+  });
+
   it("normalizes env bindings on update and avoids logging raw values", async () => {
     const normalizedEnv = {
       PLAIN_KEY: { type: "plain", value: "top-secret" },
