@@ -88,13 +88,13 @@ export function thinkingEffortOptionsFor(
   model?: string | null,
 ) {
   if (adapterType === "codex_local") return codexReasoningEffortOptions(model);
-  if (adapterType === "opencode_local") return ISSUE_THINKING_EFFORT_OPTIONS.opencode_local;
+  if (adapterType === "opencode_local" || adapterType === "vllm_fleet") return ISSUE_THINKING_EFFORT_OPTIONS.opencode_local;
   return ISSUE_THINKING_EFFORT_OPTIONS.claude_local;
 }
 
 export function thinkingEffortKeyFor(adapterType: string | null | undefined) {
   if (adapterType === "codex_local") return "modelReasoningEffort";
-  if (adapterType === "opencode_local") return "variant";
+  if (adapterType === "opencode_local" || adapterType === "vllm_fleet") return "variant";
   return "effort";
 }
 
@@ -102,7 +102,7 @@ export function thinkingEffortValueFor(adapterType: string | null | undefined, a
   if (adapterType === "codex_local") {
     return String(adapterConfig.modelReasoningEffort ?? adapterConfig.reasoningEffort ?? adapterConfig.effort ?? "");
   }
-  if (adapterType === "opencode_local") {
+  if (adapterType === "opencode_local" || adapterType === "vllm_fleet") {
     return String(adapterConfig.variant ?? "");
   }
   return String(adapterConfig.effort ?? "");

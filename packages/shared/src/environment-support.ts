@@ -75,6 +75,7 @@ const REMOTE_MANAGED_ADAPTERS = new Set<AgentAdapterType>([
   "grok_local",
   "kimi_local",
   "opencode_local",
+  "vllm_fleet",
   "pi_local",
 ]);
 

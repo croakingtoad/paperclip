@@ -182,8 +182,17 @@ const emptyOverlay: AgentConfigOverlay = {
 /** Stable empty object used as fallback for missing env config to avoid new-object-per-render. */
 const EMPTY_ENV: Record<string, EnvBinding> = {};
 
+/**
+ * vllm_fleet drives the same opencode binary as opencode_local, so it shares
+ * OpenCode's config surface: required provider/model id, `variant` as the
+ * thinking-effort key, model refresh, and no local model detection.
+ */
+export function isOpenCodeHarness(adapterType: string): boolean {
+  return adapterType === "opencode_local" || adapterType === "vllm_fleet";
+}
+
 export function supportsAdapterModelRefresh(adapterType: string): boolean {
-  return adapterType === "claude_local" || adapterType === "codex_local" || adapterType === "paperclip_runner" || adapterType === "opencode_local";
+  return adapterType === "claude_local" || adapterType === "codex_local" || adapterType === "paperclip_runner" || isOpenCodeHarness(adapterType);
 }
 
 export function resolvePaperclipRunnerTransitionModel(
@@ -1038,7 +1047,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
       ? "Paperclip Sandbox"
       : "Local";
 
-  const modelProvider = adapterType === "opencode_local" && aiConnectionBindingSchema.safeParse(
+  const modelProvider = isOpenCodeHarness(adapterType) && aiConnectionBindingSchema.safeParse(
     effectiveAiConnection,
   ).data?.provider === "openrouter" ? "openrouter" : runnerProvider;
   const runnerAcpxAgent = adapterType === "paperclip_runner" && runnerProvider === "acpx"
@@ -1091,7 +1100,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
       }
       return agentsApi.detectModel(selectedCompanyId, adapterType);
     },
-    enabled: Boolean(selectedCompanyId && isLocal && adapterType !== "opencode_local" && adapterType !== "paperclip_runner"),
+    enabled: Boolean(selectedCompanyId && isLocal && !isOpenCodeHarness(adapterType) && adapterType !== "paperclip_runner"),
   });
   const detectedModel = detectedModelData?.model ?? null;
   const detectedModelCandidates = detectedModelData?.candidates ?? [];
@@ -1451,7 +1460,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
       ? "modelReasoningEffort"
       : adapterType === "cursor"
         ? "mode"
-        : adapterType === "opencode_local"
+        : isOpenCodeHarness(adapterType)
           ? "variant"
           : harnessType === "grok_local" ? "reasoningEffort"
           : adapterType === "pi_local" ? "thinking" : "effort";
@@ -1463,7 +1472,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
         }))
       : adapterType === "cursor"
         ? cursorModeOptions
-        : adapterType === "opencode_local"
+        : isOpenCodeHarness(adapterType)
           ? openCodeThinkingEffortOptions
           : adapterType === "kimi_local"
             ? kimiThinkingEffortOptions
@@ -1485,7 +1494,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
         )
       : adapterType === "cursor"
         ? eff("adapterConfig", "mode", String(config.mode ?? ""))
-        : adapterType === "opencode_local"
+        : isOpenCodeHarness(adapterType)
           ? eff("adapterConfig", "variant", String(config.variant ?? ""))
           : eff("adapterConfig", thinkingEffortKey, String(config[thinkingEffortKey] ?? ""));
   const showThinkingEffort = !(harnessType === "pi_local" && fieldsAdapterType === "paperclip_runner")
@@ -1992,14 +2001,15 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
                 open={modelOpen}
                 onOpenChange={setModelOpen}
                 defaultLabel={adapterType === "claude_local" ? `Default (${DEFAULT_CLAUDE_LOCAL_MODEL})` : undefined}
-                allowDefault={adapterType !== "opencode_local" && adapterType !== "pi_local" && adapterType !== "paperclip_runner" && !isCursorCloudRunner}
-                required={adapterType === "opencode_local" || adapterType === "pi_local" || isCursorCloudRunner || runnerAcpxAgent === "antigravity"}
+                allowDefault={!isOpenCodeHarness(adapterType) && adapterType !== "pi_local" && adapterType !== "paperclip_runner" && !isCursorCloudRunner}
+                required={isOpenCodeHarness(adapterType) || adapterType === "pi_local" || isCursorCloudRunner || runnerAcpxAgent === "antigravity"}
+                // vllm_fleet lists one provider only, so a provider header is noise.
                 groupByProvider={!connectionModels && (adapterType === "opencode_local" || adapterType === "pi_local")}
                 preserveOrder={Boolean(connectionModels) || adapterCuratesModelOrder(adapterType)}
                 creatable
                 detectedModel={connectionModels ? undefined : detectedModel}
                 detectedModelCandidates={[]}
-                onDetectModel={connectionModels || adapterType === "opencode_local" || adapterType === "paperclip_runner"
+                onDetectModel={connectionModels || isOpenCodeHarness(adapterType) || adapterType === "paperclip_runner"
                   ? undefined
                   : async () => {
                       const result = await refetchDetectedModel();
@@ -2151,6 +2161,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
                         pi_local: "pi",
                         cursor: "agent",
                         opencode_local: "opencode",
+                        vllm_fleet: "opencode",
                       } as Record<string, string>)[adapterType] ?? adapterType.replace(/_local$/, "")
                     }
                   />

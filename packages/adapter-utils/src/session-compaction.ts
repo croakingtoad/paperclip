@@ -46,6 +46,7 @@ export const LEGACY_SESSIONED_ADAPTER_TYPES = new Set([
   "hermes_local",
   "kimi_local",
   "opencode_local",
+  "vllm_fleet",
   "pi_local",
 ]);
 
@@ -86,6 +87,12 @@ export const ADAPTER_SESSION_MANAGEMENT: Record<string, AdapterSessionManagement
     defaultSessionCompaction: DEFAULT_SESSION_COMPACTION_POLICY,
   },
   opencode_local: {
+    supportsSessionResume: true,
+    nativeContextManagement: "unknown",
+    defaultSessionCompaction: DEFAULT_SESSION_COMPACTION_POLICY,
+  },
+  // Same OpenCode session machinery, pinned to the vllm-fleet gateway.
+  vllm_fleet: {
     supportsSessionResume: true,
     nativeContextManagement: "unknown",
     defaultSessionCompaction: DEFAULT_SESSION_COMPACTION_POLICY,

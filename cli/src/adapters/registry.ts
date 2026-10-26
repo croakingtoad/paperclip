@@ -29,6 +29,12 @@ const openCodeLocalCLIAdapter: CLIAdapterModule = {
   formatStdoutEvent: printOpenCodeStreamEvent,
 };
 
+// Same opencode stdout stream, pinned to the vllm-fleet gateway.
+const vllmFleetCLIAdapter: CLIAdapterModule = {
+  type: "vllm_fleet",
+  formatStdoutEvent: printOpenCodeStreamEvent,
+};
+
 const piLocalCLIAdapter: CLIAdapterModule = {
   type: "pi_local",
   formatStdoutEvent: printPiStreamEvent,
@@ -79,6 +85,7 @@ const adaptersByType = new Map<string, CLIAdapterModule>(
     claudeLocalCLIAdapter,
     codexLocalCLIAdapter,
     openCodeLocalCLIAdapter,
+    vllmFleetCLIAdapter,
     piLocalCLIAdapter,
     cursorLocalCLIAdapter,
     cursorCloudCLIAdapter,
