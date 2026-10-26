@@ -289,8 +289,11 @@ export function aiConnectionService(db: Db) {
       }
       const requiredProvider = ADAPTER_REQUIRED_PROVIDER[effectiveAdapterType];
       if (requiredProvider && requiredProvider !== binding.provider) {
+        const requiredName = AI_CONNECTION_CAPABILITIES[requiredProvider].name;
+        // Spelling heuristic (not phonetic) — correct for all current provider display names
+        const article = /^[AEIOU]/i.test(requiredName) ? "an" : "a";
         throw unprocessable(
-          `Select an ${AI_CONNECTION_CAPABILITIES[requiredProvider].name} connection; the current selection uses ${AI_CONNECTION_CAPABILITIES[binding.provider].name}`,
+          `Select ${article} ${requiredName} connection; the current selection uses ${AI_CONNECTION_CAPABILITIES[binding.provider].name}`,
           { code: "ai_connection_incompatible" },
         );
       }

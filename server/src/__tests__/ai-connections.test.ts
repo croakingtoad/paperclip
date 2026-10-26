@@ -1703,7 +1703,8 @@ console.log(JSON.stringify({ type: "result", subtype: "success", result: "hello"
   });
   it("blocks missing identity, incompatible providers, and cross-company explicit selections", async () => {
     await expect(service.select({ ...input, userId: null })).rejects.toThrow("responsible user");
-    await expect(service.select({ ...input, userId: "alice", adapterType: "codex_local" })).rejects.toThrow("Select a");
+    await expect(service.select({ ...input, userId: "alice", adapterType: "codex_local" })).rejects.toThrow("Select an OpenAI connection; the current selection uses Claude");
+    await expect(service.select({ ...input, userId: "alice", adapterType: "grok_local" })).rejects.toThrow("Select a Grok connection; the current selection uses Claude");
     const account = await service.select({ ...input, userId: "alice" });
     await expect(service.select({ ...input, companyId: otherCompanyId, userId: "alice", binding: { ...binding, mode: "shared", connectionId: account.connection.id, grantId: account.grant.id } })).rejects.toThrow();
   });
