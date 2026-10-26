@@ -204,6 +204,13 @@ can start on login. On Linux, service installation may offer to enable user
 lingering so it can continue without an active login session. The command
 explains and confirms that system-level action before running it.
 
+Service commands run from a non-login shell — cron, CI, another supervisor, an
+agent runner — inherit no `XDG_RUNTIME_DIR`, which is how `systemctl --user`
+locates the user bus. Paperclip falls back to `/run/user/<uid>` when that
+variable is unset, so a lingering user manager is still found instead of being
+misreported as absent. Set `XDG_RUNTIME_DIR` yourself if your user bus lives
+somewhere else.
+
 Use one server process per instance. `paperclipai run` refuses to start when
 the same instance is already supervised; stop the service first or use
 `--force` only when you intentionally accept the single-writer risk.

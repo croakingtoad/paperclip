@@ -1,10 +1,12 @@
 import fs from "node:fs/promises";
+import { existsSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   assertForegroundRunAllowed,
   detectServiceManager,
+  ensureUserRuntimeDir,
   LaunchdServiceManager,
   renderLaunchdPlist,
   renderSystemdUnit,
@@ -118,6 +120,51 @@ describe("service adapter dispatch", () => {
     const runner: CommandRunner = async () => { throw new Error("no bus"); };
     const detection = await detectServiceManager({ platform: "linux", instanceId: "default", runner });
     expect(detection).toEqual({ supported: false, reason: expect.stringContaining("paperclipai run") });
+  });
+
+  it("recovers the user bus before probing so a non-login shell still finds the manager", async () => {
+    const uid = process.getuid?.();
+    if (uid === undefined || !existsSync(`/run/user/${uid}`)) return;
+    const saved = process.env.XDG_RUNTIME_DIR;
+    delete process.env.XDG_RUNTIME_DIR;
+    try {
+      let seen: string | undefined;
+      const runner: CommandRunner = async () => { seen = process.env.XDG_RUNTIME_DIR; return { stdout: "", stderr: "" }; };
+      await detectServiceManager({ platform: "linux", instanceId: "default", runner });
+      expect(seen).toBe(`/run/user/${uid}`);
+    } finally {
+      if (saved === undefined) delete process.env.XDG_RUNTIME_DIR;
+      else process.env.XDG_RUNTIME_DIR = saved;
+    }
+  });
+});
+
+describe("user runtime directory recovery", () => {
+  it("adopts the conventional runtime directory when the shell inherited none", () => {
+    const uid = process.getuid?.();
+    if (uid === undefined) return;
+    const saved = process.env.XDG_RUNTIME_DIR;
+    delete process.env.XDG_RUNTIME_DIR;
+    try {
+      const expected = existsSync(`/run/user/${uid}`) && statSync(`/run/user/${uid}`).uid === uid ? `/run/user/${uid}` : null;
+      expect(ensureUserRuntimeDir()).toBe(expected);
+      expect(process.env.XDG_RUNTIME_DIR).toBe(expected ?? undefined);
+    } finally {
+      if (saved === undefined) delete process.env.XDG_RUNTIME_DIR;
+      else process.env.XDG_RUNTIME_DIR = saved;
+    }
+  });
+
+  it("leaves an inherited runtime directory alone", () => {
+    const saved = process.env.XDG_RUNTIME_DIR;
+    process.env.XDG_RUNTIME_DIR = "/run/user/inherited";
+    try {
+      expect(ensureUserRuntimeDir()).toBe("/run/user/inherited");
+      expect(process.env.XDG_RUNTIME_DIR).toBe("/run/user/inherited");
+    } finally {
+      if (saved === undefined) delete process.env.XDG_RUNTIME_DIR;
+      else process.env.XDG_RUNTIME_DIR = saved;
+    }
   });
 });
 

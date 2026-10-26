@@ -92,6 +92,10 @@ describe("doctor", () => {
     delete process.env.PAPERCLIP_AGENT_JWT_SECRET;
     delete process.env.PAPERCLIP_SECRETS_MASTER_KEY;
     delete process.env.PAPERCLIP_SECRETS_MASTER_KEY_FILE;
+    // The service checks query the live service manager. Without an instance
+    // id of its own this test inspects whatever 'default' service the host
+    // happens to be running, and passes only on machines that have none.
+    process.env.PAPERCLIP_INSTANCE_ID = `doctor-test-${process.pid}`;
   });
 
   afterEach(() => {

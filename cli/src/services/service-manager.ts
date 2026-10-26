@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { constants as fsConstants } from "node:fs";
+import { constants as fsConstants, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -273,90 +273,6 @@ export class SystemdServiceManager implements ServiceManager {
   async logs(follow: boolean, lines: number): Promise<void> { await this.runner("journalctl", ["--user", "--unit", this.serviceName, "--lines", String(lines), ...(follow ? ["--follow"] : [])], { inherit: true }); }
 }
 
-export class SystemdSystemServiceManager implements ServiceManager {
-  readonly platform = "systemd" as const;
-  readonly serviceName: string;
-  readonly definitionPath: string;
-  private readonly user: string;
-
-  constructor(readonly instanceId: string, private readonly runner: CommandRunner = defaultCommandRunner, private readonly homeDir = resolvePaperclipHomeDir(), private readonly shimPath = resolveServiceShimPath(), private readonly serviceUser = "paperclip") {
-    this.serviceName = systemdServiceName(instanceId);
-    this.definitionPath = `/etc/systemd/system/${this.serviceName}`;
-    this.user = serviceUser;
-  }
-
-  renderDefinition(): string {
-    return renderSystemdSystemUnit({ instanceId: this.instanceId, shimPath: this.shimPath, homeDir: this.homeDir, user: this.user });
-  }
-
-  async installedExecutablePath(): Promise<string | null> {
-    try {
-      return extractExecutableFromSystemdUnit(await fs.readFile(this.definitionPath, "utf8"));
-    } catch {
-      return null;
-    }
-  }
-
-  private async runWithElevation(command: string, args: string[]): Promise<CommandResult> {
-    return this.runner("sudo", [command, ...args]);
-  }
-
-  private async ensureCurrent(): Promise<boolean> {
-    const content = this.renderDefinition();
-    try {
-      const current = await fs.readFile(this.definitionPath, "utf8");
-      if (current === content) return false;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-    const temporaryPath = `/tmp/.${path.basename(this.definitionPath)}.tmp-${process.pid}-${Date.now()}`;
-    try {
-      await fs.writeFile(temporaryPath, content, { encoding: "utf8", mode: 0o644 });
-      await this.runWithElevation("mv", [temporaryPath, this.definitionPath]);
-      await this.runWithElevation("systemctl", ["daemon-reload"]);
-    } finally {
-      await fs.rm(temporaryPath, { force: true });
-    }
-    return true;
-  }
-
-  async install(options: ServiceInstallOptions): Promise<{ changed: boolean }> {
-    const changed = await this.ensureCurrent();
-    if (options.startOnLogin) await this.runWithElevation("systemctl", ["enable", this.serviceName]);
-    else await this.runWithElevation("systemctl", ["disable", this.serviceName]).catch(() => undefined);
-    if (options.startNow) await this.start();
-    return { changed };
-  }
-
-  async uninstall(): Promise<void> {
-    const status = await this.status();
-    if (status.active) await this.stop();
-    await this.runWithElevation("systemctl", ["disable", this.serviceName]).catch(() => undefined);
-    await this.runWithElevation("rm", ["-f", this.definitionPath]);
-    await this.runWithElevation("systemctl", ["daemon-reload"]);
-    await this.runWithElevation("systemctl", ["reset-failed", this.serviceName]).catch(() => undefined);
-  }
-
-  async start(): Promise<void> { await this.ensureCurrent(); await this.runWithElevation("systemctl", ["start", this.serviceName]); }
-  async stop(): Promise<void> { await this.runWithElevation("systemctl", ["stop", this.serviceName]); }
-  async restart(): Promise<void> { await this.ensureCurrent(); await this.runWithElevation("systemctl", ["restart", this.serviceName]); }
-
-  async status(): Promise<ServiceStatus> {
-    let output: string;
-    try {
-      const result = await this.runWithElevation("systemctl", ["show", this.serviceName, "--property=LoadState,ActiveState,UnitFileState,MainPID"]);
-      output = result.stdout;
-    } catch {
-      return { platform: this.platform, serviceName: this.serviceName, installed: false, active: false, enabled: false, pid: null };
-    }
-    const values = Object.fromEntries(output.trim().split(/\r?\n/).map((line) => line.split(/=(.*)/s).slice(0, 2)));
-    const pid = Number(values.MainPID);
-    return { platform: this.platform, serviceName: this.serviceName, installed: values.LoadState === "loaded", active: values.ActiveState === "active", enabled: values.UnitFileState === "enabled", pid: Number.isInteger(pid) && pid > 0 ? pid : null, detail: values.ActiveState };
-  }
-
-  async logs(follow: boolean, lines: number): Promise<void> { await this.runner("sudo", ["journalctl", "--unit", this.serviceName, "--lines", String(lines), ...(follow ? ["--follow"] : [])], { inherit: true }); }
-}
-
 export class LaunchdServiceManager implements ServiceManager {
   readonly platform = "launchd" as const;
   readonly serviceName: string;
@@ -429,27 +345,39 @@ export class LaunchdServiceManager implements ServiceManager {
 
 export type ServiceManagerDetection = { supported: true; manager: ServiceManager } | { supported: false; reason: string };
 
-export async function detectServiceManager(input: { instanceId?: string; platform?: NodeJS.Platform; runner?: CommandRunner; preferSystem?: boolean } = {}): Promise<ServiceManagerDetection> {
+// systemctl --user, loginctl and journalctl --user find the user bus through
+// XDG_RUNTIME_DIR. Non-login shells — cron, CI, a supervisor, an agent runner
+// — inherit no XDG_RUNTIME_DIR, so a perfectly healthy lingering user manager
+// reports as absent. Recovering the conventional path is what a login shell
+// would have done for us.
+export function ensureUserRuntimeDir(): string | null {
+  const existing = process.env.XDG_RUNTIME_DIR?.trim();
+  if (existing) return existing;
+  const uid = process.getuid?.();
+  if (uid === undefined) return null;
+  const runtimeDir = `/run/user/${uid}`;
+  try {
+    const stats = statSync(runtimeDir);
+    if (!stats.isDirectory() || stats.uid !== uid) return null;
+  } catch {
+    return null;
+  }
+  process.env.XDG_RUNTIME_DIR = runtimeDir;
+  return runtimeDir;
+}
+
+export async function detectServiceManager(input: { instanceId?: string; platform?: NodeJS.Platform; runner?: CommandRunner } = {}): Promise<ServiceManagerDetection> {
   const instanceId = resolvePaperclipInstanceId(input.instanceId);
   const platform = input.platform ?? process.platform;
   const runner = input.runner ?? defaultCommandRunner;
   if (platform === "darwin") return { supported: true, manager: new LaunchdServiceManager(instanceId, runner) };
   if (platform !== "linux") return { supported: false, reason: `Service management is not supported on ${platform}. Use paperclipai run instead.` };
-
-  if (input.preferSystem) {
-    return { supported: true, manager: new SystemdSystemServiceManager(instanceId, runner) };
-  }
-
+  ensureUserRuntimeDir();
   try {
     await runner("systemctl", ["--user", "show-environment"]);
     return { supported: true, manager: new SystemdServiceManager(instanceId, runner) };
   } catch {
-    try {
-      await runner("sudo", ["systemctl", "show-environment"]);
-      return { supported: true, manager: new SystemdSystemServiceManager(instanceId, runner) };
-    } catch {
-      return { supported: false, reason: "No usable systemd manager detected (neither user nor system). Use paperclipai run instead." };
-    }
+    return { supported: false, reason: "No usable systemd user manager was detected (common in containers and WSL1). Use paperclipai run instead." };
   }
 }
 
