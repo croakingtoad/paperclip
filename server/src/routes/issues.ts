@@ -12447,6 +12447,8 @@ export function issueRoutes(
       if (!sourceIssue) return;
       if (!(await assertAgentIssueMutationAllowed(req, res, sourceIssue)))
         return;
+      if (await assertLowTrustControlPlaneDenied(req, res, sourceIssue.companyId, sourceIssue))
+        return;
 
       const requestedChildren = [];
       for (const child of req.body.children as Array<

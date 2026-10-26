@@ -1568,6 +1568,18 @@ describeEmbeddedPostgres(
               .send({ title: `child ${fixture.canaries.issueSibling}` }),
         },
         {
+          id: "LT-26 accepted-plan-decompositions",
+          req: () =>
+            request(app)
+              .post(
+                `/api/issues/${fixture.issues.assignedReview.id}/accepted-plan-decompositions`,
+              )
+              .send({
+                acceptedPlanRevisionId: "00000000-0000-0000-0000-000000000001",
+                children: [{ title: `child ${fixture.canaries.issueSibling}` }],
+              }),
+        },
+        {
           id: "LT-26 company issue",
           req: () =>
             request(app)
