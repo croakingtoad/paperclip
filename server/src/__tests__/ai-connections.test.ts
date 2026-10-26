@@ -2016,7 +2016,10 @@ console.log(JSON.stringify({ type: "result", subtype: "success", result: "hello"
     expect(isAiConnectionCompatible({ provider: "anthropic", method: "api_key", mode: "responsible_user" }, "paperclip_runner", "same-model", "acpx", "claude")).toBe(true);
     expect(isAiConnectionCompatible(binding, "paperclip_runner", "same-model", "acpx", "claude")).toBe(true);
     expect(isAiConnectionCompatible(binding, "paperclip_runner", "same-model", "acpx", "codex")).toBe(false);
-    expect(isAiConnectionCompatible({ provider: "openrouter", method: "api_key" }, "opencode_local", "anthropic/model")).toBe(false);
+    // opencode_local skips the "openrouter/" prefix check: the connection is auth/billing only;
+    // inference routes through PAPERCLIP_OPENCODE_PROVIDERS (e.g. vllm-local/qwen3.8-27b).
+    expect(isAiConnectionCompatible({ provider: "openrouter", method: "api_key" }, "opencode_local", "vllm-local/qwen3.8-27b")).toBe(true);
+    expect(isAiConnectionCompatible({ provider: "openrouter", method: "api_key" }, "opencode_local", "openrouter/anthropic/claude-3.5-sonnet")).toBe(true);
   });
   it("does not let a forged delegation bypass human access or accept an expired subscription attempt", async () => {
     const selected = await service.select({ ...input, userId: "alice" });

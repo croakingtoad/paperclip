@@ -1,22 +1,19 @@
 import { useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   aiConnectionBindingSchema,
   isAiConnectionCompatible,
-  type AiRuntimeConnectionBinding,
-  type AiAuthMethod,
   type AiConnectionBinding,
+  type AiAuthMethod,
   type AiProvider,
-  type AiManagedConnectionSummary,
 } from "@paperclipai/shared";
+import { agentsApi } from "@/api/agents";
 import { aiConnectionsApi } from "@/api/ai-connections";
-import { AiConnectionSelect } from "./AiConnectionSelect";
-import { AiProviderSetup } from "./AiProviderSetup";
-import { AiConnectionCredentialStep } from "./AiConnectionCredentialStep";
+import { queryKeys } from "@/lib/queryKeys";
+import { AiConnectionPicker } from "./AiConnectionPicker";
 import { AiConnectionLegacyNotice } from "./AiConnectionManagement";
-import { aiConnectionDisplayLabel } from "./model";
+import { AiConnectionCredentialStep } from "./AiConnectionCredentialStep";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -34,11 +31,7 @@ export function aiProviderForAdapter(
       claude_local: "anthropic",
       codex_local: "openai",
       opencode_local: "openrouter",
-      pi_local: "openrouter",
       grok_local: "xai",
-      copilot_runtime: "github",
-      gemini_local: "google",
-      hermes_local: "openrouter",
     } as Record<string, AiProvider>
   )[adapterType];
 }
@@ -53,33 +46,36 @@ export function AiConnectionField({
   environmentId,
   legacy = false,
   readOnly = false,
-  preferAdvanced = false,
-  routerAdapterType,
 }: {
   companyId: string;
   agentId?: string;
   agentName: string;
   adapterType: string;
   model?: string;
-  value?: AiRuntimeConnectionBinding;
-  onChange: (binding: AiRuntimeConnectionBinding) => void;
+  value?: AiConnectionBinding;
+  onChange: (binding: AiConnectionBinding) => void;
   environmentId?: string;
   legacy?: boolean;
   readOnly?: boolean;
-  preferAdvanced?: boolean;
-  routerAdapterType?: string;
 }) {
   const provider = aiProviderForAdapter(adapterType);
+  const couldBeGatewayModel = adapterType === "opencode_local"
+    && typeof model === "string"
+    && model.length > 0
+    && !model.startsWith("openrouter/");
+  const gatewayProviderId = couldBeGatewayModel ? model!.split("/")[0] : null;
+  const { data: gatewayProviders } = useQuery({
+    queryKey: queryKeys.agents.opencodeGatewayProviders(companyId),
+    queryFn: () => agentsApi.opencodeGatewayProviders(companyId),
+    enabled: couldBeGatewayModel,
+  });
+  const gatewayProvider = gatewayProviders?.find((p) => p.id === gatewayProviderId) ?? null;
   const returnFocus = useRef<HTMLElement | null>(null);
   const restoreFocus = (event: Event) => { event.preventDefault(); returnFocus.current?.focus(); };
   const [adopting, setAdopting] = useState(false);
-  const [pendingAdoption, setPendingAdoption] = useState<AiRuntimeConnectionBinding>();
+  const [pendingAdoption, setPendingAdoption] = useState<AiConnectionBinding>();
   const [connecting, setConnecting] = useState(false);
-  const [advancedSetup, setAdvancedSetup] = useState(false);
-  const [reconnecting, setReconnecting] = useState<AiManagedConnectionSummary>();
-  const [allAgents, setAllAgents] = useState(true);
-  const [savedAccount, setSavedAccount] = useState<{ connectionId: string; grantId: string; method: AiAuthMethod }>();
-  const changeBinding = (next: AiRuntimeConnectionBinding) => {
+  const changeBinding = (next: AiConnectionBinding) => {
     if (legacy && !value) { if (!connecting) returnFocus.current = document.activeElement as HTMLElement; setPendingAdoption(next); }
     else onChange(next);
   };
@@ -89,38 +85,9 @@ export function AiConnectionField({
     queryFn: () => aiConnectionsApi.list(companyId, agentId),
     enabled: Boolean(provider),
   });
-  const personalDefault = accounts.data?.connections.find((account) => account.provider === provider && account.isDefault && account.ownership === "personal" && account.ownerUserId === accounts.data.currentUserId);
-  const pendingAccount = pendingAdoption?.mode === "responsible_user"
-    ? personalDefault
-    : pendingAdoption && pendingAdoption.mode !== "router"
-      ? accounts.data?.connections.find(account => account.id === pendingAdoption.connectionId && account.grantId === pendingAdoption.grantId)
-      : undefined;
-  const selectDefault = useMutation({
-    mutationFn: async (result: NonNullable<typeof savedAccount>) => {
-      // Reconnect retains the existing default and its access. A new account
-      // must be selected explicitly before a responsible-user binding uses it.
-      if (!reconnecting) await aiConnectionsApi.setDefault(companyId, result.grantId);
-      return result;
-    },
-    onSuccess: async (result) => {
-      await client.invalidateQueries({ queryKey: ["ai-connections", companyId] });
-      changeBinding({ provider: provider!, method: result.method, mode: "responsible_user" });
-      setConnecting(false);
-    },
-  });
-  const openConnection = (reconnect?: AiManagedConnectionSummary) => {
-    returnFocus.current = document.activeElement as HTMLElement;
-    setReconnecting(reconnect);
-    setAdvancedSetup(!reconnect && (preferAdvanced || provider === "openrouter"));
-    setAllAgents(accounts.data?.canManageConnections ?? false);
-    setSavedAccount(undefined);
-    selectDefault.reset();
-    setConnecting(true);
-  };
-  const method: AiAuthMethod = (value && value.mode !== "router" && value.mode !== "responsible_user" ? value.method : undefined)
+  const method: AiAuthMethod = (value?.mode !== "responsible_user" ? value?.method : undefined)
     ?? accounts.data?.connections.find((account) => account.provider === provider && account.isDefault)?.method
-    ?? (provider === "openrouter" || provider === "google" || provider === "github" ? "api_key" : "subscription");
-  const compatiblePools = agentId ? accounts.data?.pools?.filter(pool => pool.enabled && pool.members.some(member => isAiConnectionCompatible(member.binding, routerAdapterType ?? adapterType, member.profile.model, member.profile.provider, member.profile.acpxAgent))) ?? [] : [];
+    ?? (provider === "openrouter" ? "api_key" : "subscription");
   if (!provider) return null;
   if (legacy && !value && !adopting)
     return (
@@ -131,27 +98,22 @@ export function AiConnectionField({
     );
   return (
     <div className="space-y-4">
-      {value && value.mode !== "router" && (!["opencode_local", "pi_local"].includes(adapterType) || Boolean(model)) && !isAiConnectionCompatible(value, adapterType, model) && (
+      {value && (adapterType !== "opencode_local" || Boolean(model)) && !isAiConnectionCompatible(value, adapterType, model) && (
         <p role="alert" className="text-sm text-destructive">
           This connection does not support the current harness and model. Choose
           a compatible connection before saving.
         </p>
       )}
-      {(compatiblePools.length > 0 || value?.mode === "router") && <label className="block space-y-1 text-sm">
-        AI connection
-        <select className="block w-full rounded-md border bg-background px-3 py-2" disabled={readOnly} value={value?.mode === "router" ? value.connectionId : ""} onChange={event => {
-          if (event.target.value) changeBinding({ mode: "router", connectionId: event.target.value });
-          else changeBinding({ mode: "responsible_user", provider, method });
-        }}>
-          <option value="">Individual account</option>
-          {compatiblePools.map(pool => <option key={pool.id} value={pool.id}>{pool.name} · Experimental pool</option>)}
-          {value?.mode === "router" && !compatiblePools.some(pool => pool.id === value.connectionId) && <option value={value.connectionId}>Pool unavailable — enable routing and the pool</option>}
-        </select>
-        {value?.mode === "router" && <span className="text-muted-foreground">New tasks rotate. Existing tasks keep their account.</span>}
-      </label>}
-      {value?.mode !== "router" && <AiConnectionSelect
-        adapterType={adapterType}
-          model={model}
+      {gatewayProvider && gatewayProviderId && (
+        <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs space-y-0.5">
+          <p className="font-medium">Inference gateway: {gatewayProviderId}</p>
+          {gatewayProvider.baseUrl && (
+            <p className="text-muted-foreground font-mono">{gatewayProvider.baseUrl}</p>
+          )}
+          <p className="text-muted-foreground">Requests route to this gateway. The connection below handles billing and authentication only.</p>
+        </div>
+      )}
+      <AiConnectionPicker
         requirement={{ companyId, provider }}
         connections={accounts.data?.connections ?? []}
         value={value}
@@ -161,13 +123,13 @@ export function AiConnectionField({
         readOnly={readOnly}
         loading={accounts.isPending}
         error={accounts.error?.message}
+        billingOnlyLabel={!!gatewayProvider}
         onChange={(binding) =>
           changeBinding(aiConnectionBindingSchema.parse(binding))
         }
-        onConnect={() => openConnection()}
-        onReconnect={(!value || value.mode === "responsible_user") && personalDefault && personalDefault.status !== "connected" ? () => openConnection(personalDefault) : undefined}
+        onConnect={() => { returnFocus.current = document.activeElement as HTMLElement; setConnecting(true); }}
         onRetry={() => void accounts.refetch()}
-      />}
+      />
       <Dialog
         open={Boolean(pendingAdoption)}
         onOpenChange={(open) => {
@@ -176,20 +138,24 @@ export function AiConnectionField({
       >
         <DialogContent className="max-h-(--sz-85vh) overflow-y-auto sm:max-w-2xl" onCloseAutoFocus={restoreFocus}>
           <DialogHeader>
-            <DialogTitle>{pendingAdoption?.mode === "router" ? `Use ${accounts.data?.pools?.find(pool => pool.id === pendingAdoption.connectionId)?.name ?? "this pool"}?` : `Adopt Connections for ${agentName}`}</DialogTitle>
+            <DialogTitle>Adopt Connections for {agentName}</DialogTitle>
             <DialogDescription>
-              {pendingAdoption?.mode === "router" ? "Reset existing sessions that use an account outside this pool." : "Saving validates access to the selected connection. Existing sessions keep their account or require an explicit reset before adoption."}
+              Saving tests this account in {agentName}’s environment before
+              replacing its existing authentication. Other agents keep their
+              current configuration.
             </DialogDescription>
           </DialogHeader>
-          {pendingAdoption?.mode !== "router" && <p className="text-sm">
+          <p className="text-sm">
             {pendingAdoption?.mode === "responsible_user"
-              ? `Responsible user’s default. For you: ${pendingAccount ? aiConnectionDisplayLabel(pendingAccount) : "Not connected"}. Other users use their own default.`
-              : pendingAccount && aiConnectionDisplayLabel(pendingAccount)}
-          </p>}
-          {pendingAdoption?.mode !== "router" && <p className="text-xs text-muted-foreground">
+              ? `Responsible user’s default. For you: ${accounts.data?.connections.find((account) => account.isDefault && account.provider === provider)?.name ?? "Not connected"}. Other users use their own default.`
+              : accounts.data?.connections.find(
+                  (account) => account.id === pendingAdoption?.connectionId,
+                )?.name}
+          </p>
+          <p className="text-xs text-muted-foreground">
             After adoption, missing credentials block execution. Previous
             authentication will not be used as a fallback.
-          </p>}
+          </p>
           <DialogFooter>
             <Button
               variant="ghost"
@@ -203,62 +169,34 @@ export function AiConnectionField({
                 setPendingAdoption(undefined);
               }}
             >
-              {pendingAdoption?.mode === "router" ? "Use pool" : "Use this binding when saved"}
+              Use this binding when saved
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Dialog open={connecting} onOpenChange={(open) => { if (!selectDefault.isPending) setConnecting(open); }}>
+      <Dialog open={connecting} onOpenChange={setConnecting}>
         <DialogContent className="max-h-(--sz-85vh) overflow-y-auto sm:max-w-2xl" onCloseAutoFocus={restoreFocus}>
           <DialogHeader>
-            <DialogTitle>{reconnecting ? "Reconnect account" : "Connect account"}</DialogTitle>
-            <DialogDescription>
-              {advancedSetup ? "Choose a provider connection for this agent." : reconnecting ? "Sign in again to repair your current default account. Its agent access stays the same." : "This account will become your default for this provider. Your tasks will use it; other users keep their own default."}
-            </DialogDescription>
+            <DialogTitle>Connect account</DialogTitle>
           </DialogHeader>
-          {advancedSetup ? <AiProviderSetup
-            companyId={companyId} agentId={agentId} environmentId={environmentId}
-            advancedOnly={preferAdvanced}
-            initialProtocol={adapterType === "claude_local" ? "messages" : adapterType === "codex_local" ? "responses" : "chat"}
-            onCancel={() => preferAdvanced ? setConnecting(false) : setAdvancedSetup(false)}
-            onComplete={binding => {
-              void client.invalidateQueries({ queryKey: ["ai-connections", companyId] });
-              setConnecting(false);
-              changeBinding(binding);
-            }}
-          /> : <>
-          {!reconnecting && !savedAccount && <label className="flex items-center gap-2 text-sm">
-            <Checkbox checked={allAgents} disabled={!accounts.data?.canManageConnections} onCheckedChange={(checked) => setAllAgents(checked === true)} />
-            Allow all agents in this company to use this account for my tasks
-          </label>}
-          {savedAccount ? <div className="space-y-4">
-            {selectDefault.error ? <>
-              <p role="alert" className="text-sm text-destructive">{selectDefault.error.message}</p>
-              <Button onClick={() => selectDefault.mutate(savedAccount)}>Retry default selection</Button>
-            </> : <p role="status" className="text-sm text-muted-foreground">Selecting your default account…</p>}
-          </div> :
           <AiConnectionCredentialStep
             companyId={companyId}
             provider={provider}
-            initialMethod={reconnecting?.method ?? method}
-            fixedMethod={Boolean(reconnecting)}
-            connectionId={reconnecting?.id}
-            name={reconnecting?.name ?? `My ${provider === "anthropic" ? "Claude" : provider === "openai" ? "OpenAI" : provider === "xai" ? "Grok" : provider === "google" ? "Gemini" : provider === "github" ? "GitHub Copilot" : "OpenRouter"} ${method === "subscription" ? "subscription" : "API"}`}
+            initialMethod={method}
+            name={`My ${provider === "anthropic" ? "Claude" : provider === "openai" ? "OpenAI" : provider === "xai" ? "Grok" : "OpenRouter"} ${method === "subscription" ? "subscription" : "API"}`}
             ownership="personal"
             agentIds={agentId ? [agentId] : []}
-            allAgents={allAgents}
+            allAgents={false}
             environmentId={environmentId}
             onCancel={() => setConnecting(false)}
-            onComplete={(result) => {
-              setSavedAccount(result);
-              selectDefault.mutate(result);
+            onComplete={() => {
+              void client.invalidateQueries({
+                queryKey: ["ai-connections", companyId],
+              });
+              setConnecting(false);
+              changeBinding({ provider, method, mode: "responsible_user" });
             }}
-          />}
-          {!reconnecting && !savedAccount && <details>
-            <summary className="cursor-pointer text-sm text-muted-foreground">Advanced providers</summary>
-            <Button type="button" variant="ghost" onClick={() => setAdvancedSetup(true)}>Choose another provider or gateway</Button>
-          </details>}
-          </>}
+          />
         </DialogContent>
       </Dialog>
     </div>

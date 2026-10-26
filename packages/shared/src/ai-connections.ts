@@ -139,6 +139,8 @@ export function isAiConnectionCompatible(
   return (
     candidates.some((method) => method?.adapters.includes(adapterType)) &&
     (requirement.provider !== "openrouter" ||
+      // opencode_local routes inference through PAPERCLIP_OPENCODE_PROVIDERS (e.g. vllm-local);
+      // the openrouter connection is auth/billing only, so gateway model ids lack the "openrouter/" prefix.
       adapterType === "opencode_local" ||
       (typeof model === "string" && model.startsWith("openrouter/")))
   );
