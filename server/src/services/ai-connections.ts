@@ -290,7 +290,7 @@ export function aiConnectionService(db: Db) {
       const requiredProvider = ADAPTER_REQUIRED_PROVIDER[effectiveAdapterType];
       if (requiredProvider && requiredProvider !== binding.provider) {
         throw unprocessable(
-          `Select a ${AI_CONNECTION_CAPABILITIES[requiredProvider].name} connection; the current selection uses ${AI_CONNECTION_CAPABILITIES[binding.provider].name}`,
+          `Select an ${AI_CONNECTION_CAPABILITIES[requiredProvider].name} connection; the current selection uses ${AI_CONNECTION_CAPABILITIES[binding.provider].name}`,
           { code: "ai_connection_incompatible" },
         );
       }

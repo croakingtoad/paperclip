@@ -23,6 +23,11 @@ type SupertestTestConstructor = {
   };
 };
 
+// Runner environments export empty-string stubs that break @ai-sdk module-level init.
+for (const key of ["OPENAI_BASE_URL", "ANTHROPIC_BASE_URL", "XAI_BASE_URL"]) {
+  if (process.env[key] === "") delete process.env[key];
+}
+
 // Keep the original home available only for read-only host port-lease checks.
 process.env.PAPERCLIP_TEST_HOST_HOME ??= process.env.PAPERCLIP_HOME?.trim() || path.join(os.homedir(), ".paperclip");
 
