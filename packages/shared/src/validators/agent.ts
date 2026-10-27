@@ -70,7 +70,12 @@ export const createAgentInstructionsBundleSchema = z.object({
 });
 
 export const agentRuntimeConfigSchema = z.object({
-  aiConnection: aiConnectionBindingSchema.optional(),
+  // `null` is the explicit-clear sentinel the adapter switch sends: the old
+  // adapter's binding cannot survive the switch, and `undefined` is erased by
+  // JSON serialization, so the PATCH route reads `null` as "drop the binding"
+  // and `undefined` as "leave the persisted one alone". The schema has to admit
+  // the sentinel or the request dies in validation before the route sees it.
+  aiConnection: aiConnectionBindingSchema.nullable().optional(),
   debug: z.object({
     providerTrace: z.literal("raw").optional(),
   }).strict().optional(),

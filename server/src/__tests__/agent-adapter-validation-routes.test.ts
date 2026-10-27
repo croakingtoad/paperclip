@@ -699,6 +699,58 @@ describe("agent routes adapter validation", () => {
     expect(res.status, JSON.stringify(res.body)).toBe(201);
   });
 
+  it("accepts the aiConnection clear sentinel when switching an existing agent to vllm_fleet", async () => {
+    // Switching the harness invalidates the old adapter's connection, so the
+    // form sends `aiConnection: null` to drop it. `undefined` would be erased
+    // by JSON serialization and read as "leave it alone". The schema has to
+    // admit the sentinel: when it did not, every adapter switch on a saved
+    // agent died in validation as a bare "Validation error" before the route
+    // ran, and the operator could not move an agent onto vllm_fleet at all.
+    const agentId = "11111111-1111-4111-8111-111111111111";
+    mockAgentService.getById.mockResolvedValue({
+      id: agentId,
+      companyId: "company-1",
+      name: "Claude Monet",
+      urlKey: "claude-monet",
+      role: "engineer",
+      title: null,
+      icon: null,
+      status: "idle",
+      reportsTo: null,
+      capabilities: null,
+      adapterType: "claude_local",
+      adapterConfig: {},
+      runtimeConfig: { aiConnection: { provider: "anthropic", method: "api_key" } },
+      budgetMonthlyCents: 0,
+      spentMonthlyCents: 0,
+      pauseReason: null,
+      pausedAt: null,
+      permissions: { canCreateAgents: false },
+      lastHeartbeatAt: null,
+      metadata: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const app = await createApp();
+    const res = await requestApp(app, (baseUrl) =>
+      request(baseUrl)
+        .patch(`/api/agents/${agentId}`)
+        .send({
+          adapterType: "vllm_fleet",
+          adapterConfig: { model: "vllm-fleet/qwen3.8-27b" },
+          runtimeConfig: { aiConnection: null },
+        }),
+    );
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const patch = mockAgentService.update.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(patch.adapterType).toBe("vllm_fleet");
+    // The sentinel clears the binding rather than persisting a literal null,
+    // and the stale anthropic binding is not re-injected onto the new harness.
+    const runtimeConfig = patch.runtimeConfig as Record<string, unknown>;
+    expect("aiConnection" in runtimeConfig).toBe(false);
+  });
+
   it("rejects a new paperclip_runner selection while the rollout flag is off", async () => {
     const app = await createApp();
     const res = await requestApp(app, (baseUrl) =>

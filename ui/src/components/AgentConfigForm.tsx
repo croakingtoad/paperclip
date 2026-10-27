@@ -605,6 +605,16 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
   const heartbeat = !isCreate ? ((runtimeConfig.heartbeat ?? {}) as Record<string, unknown>) : {};
   const debug = !isCreate ? ((runtimeConfig.debug ?? {}) as Record<string, unknown>) : {};
 
+  // The adapter switch writes an explicit `null` to clear the binding, because
+  // the old adapter's connection cannot survive the switch and `undefined` is
+  // erased by JSON serialization. `??` would read that sentinel as "absent" and
+  // fall back to the persisted binding, so resolve the overlay entry by
+  // presence: present-and-null means cleared, absent means untouched.
+  const overlayAiConnection =
+    (overlay.runtime.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection;
+  const effectiveAiConnection =
+    overlayAiConnection === undefined ? runtimeConfig.aiConnection : overlayAiConnection;
+
   const adapterType = isCreate
     ? props.values.adapterType
     : overlay.adapterType ?? props.agent.adapterType;
@@ -901,7 +911,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
       : eff("adapterConfig", "provider", config.provider === "acpx" && config.acpxAgent === "codex" ? "codex" : config.provider ?? "codex"))
     : undefined;
   const modelProvider = isOpenCodeHarness(adapterType) && aiConnectionBindingSchema.safeParse(
-    (overlay.runtime.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? runtimeConfig.aiConnection,
+    effectiveAiConnection,
   ).data?.provider === "openrouter" ? "openrouter" : runnerProvider;
   // Fetch adapter models for the effective provider, including unsaved changes.
   const modelQueryKey = selectedCompanyId
@@ -1070,9 +1080,11 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
       });
       const adapterConfig = buildAdapterConfigForTest(adapterConfigPatch);
       const agentId = isCreate ? undefined : props.agent.id;
-      const aiConnection = isCreate ? undefined : aiConnectionBindingSchema.safeParse(
-        (overlay.runtime.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? props.agent.runtimeConfig.aiConnection,
-      ).data;
+      // Cleared by an adapter switch means probe with no connection, not with
+      // the old adapter's one — see `effectiveAiConnection`.
+      const aiConnection = isCreate
+        ? undefined
+        : aiConnectionBindingSchema.safeParse(effectiveAiConnection).data;
       if (props.compactTestFeedback) {
         const providerAdapter = adapterType === "paperclip_runner"
           ? adapterConfig.provider === "codex" ? "codex_local"
@@ -1158,7 +1170,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
     environmentCapabilities?.sandboxProviders?.[effectiveLoginProvider]?.supportsLoginPty === true;
   const loginNeedsPty = adapterCaps.login != null;
   const showAdapterLogin =
-    (isCreate || !((overlay.runtime.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? runtimeConfig.aiConnection)) &&
+    (isCreate || !effectiveAiConnection) &&
     adapterSupportsSandboxLogin &&
     effectiveLoginEnvironment?.driver === "sandbox" &&
     Boolean(effectiveLoginEnvironmentId) &&
