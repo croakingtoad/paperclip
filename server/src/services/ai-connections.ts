@@ -32,6 +32,7 @@ import {
   aiSubscriptionNeedsIsolatedLogin,
   isAiConnectionCompatible,
   supportsAiConnectionUsage,
+  aiRoutingHarness,
   type AiConnectionBinding,
   type AiConnectionAttribution,
   type AiConnectionMetadata,
@@ -48,6 +49,22 @@ import { logActivity } from "./activity-log.js";
 import { secretService } from "./secrets.js";
 import { probeAiConnectionUsage } from "./ai-connection-usage.js";
 
+const ADAPTER_REQUIRED_PROVIDER: Partial<Record<string, AiProvider>> = (() => {
+  const providerSets = new Map<string, Set<AiProvider>>();
+  for (const [provider, cap] of Object.entries(AI_CONNECTION_CAPABILITIES)) {
+    for (const method of Object.values(cap.methods)) {
+      for (const adapter of method?.adapters ?? []) {
+        if (!providerSets.has(adapter)) providerSets.set(adapter, new Set());
+        providerSets.get(adapter)!.add(provider as AiProvider);
+      }
+    }
+  }
+  const result: Partial<Record<string, AiProvider>> = {};
+  for (const [adapter, providers] of providerSets) {
+    if (providers.size === 1) result[adapter] = [...providers][0];
+  }
+  return result;
+})();
 /** Same human audience displayed by the existing Connections identity controls. */
 function canUseCredential(
   grant: { kind: string; subjectUserId: string | null },
@@ -268,8 +285,24 @@ export function aiConnectionService(db: Db) {
         input.runnerProvider,
         input.acpxAgent,
       )
-    )
+    ) {
+      const effectiveAdapterType = aiRoutingHarness(
+        input.adapterType,
+        input.runnerProvider,
+        input.acpxAgent,
+      );
+      const requiredProvider = ADAPTER_REQUIRED_PROVIDER[effectiveAdapterType];
+      if (requiredProvider && requiredProvider !== binding.provider) {
+        const requiredName = AI_CONNECTION_CAPABILITIES[requiredProvider].name;
+        // Spelling heuristic (not phonetic) — correct for all current provider display names
+        const article = /^[AEIOU]/i.test(requiredName) ? "an" : "a";
+        throw aiConnectionConfigurationFailure(
+          "ai_connection_incompatible",
+          `Select ${article} ${requiredName} connection; the current selection uses ${AI_CONNECTION_CAPABILITIES[binding.provider].name}`,
+        );
+      }
       throw aiConnectionConfigurationFailure("ai_connection_incompatible", "Select an AI connection compatible with this harness and model");
+    }
     if (binding.mode === "responsible_user" && !userId)
       throw aiConnectionConfigurationFailure("ai_connection_responsible_user_missing", "This run needs a responsible user to select an AI connection");
     if (userId && !(await membership(companyId, userId)))
