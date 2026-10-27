@@ -3095,7 +3095,14 @@ export function agentRoutes(
       return;
     }
     if (type === "opencode_local" && provider === "openrouter") {
-      res.json(await listOpenRouterModels(refresh));
+      const gatewayProviders = await listGatewayProviders();
+      const [openrouterModels, allModels] = await Promise.all([
+        listOpenRouterModels(refresh),
+        listAdapterModels("opencode_local"),
+      ]);
+      const gatewayIds = new Set(gatewayProviders.map((p) => p.id));
+      const gatewayModels = allModels.filter((m) => gatewayIds.has(m.id.split("/")[0]));
+      res.json([...openrouterModels, ...gatewayModels]);
       return;
     }
     if (type === "paperclip_runner" && provider && !isPaperclipRunnerProvider(provider)) {
