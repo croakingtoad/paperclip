@@ -1,3 +1,6 @@
+import { toolReviewProjectionService } from "../services/tool-review-projection.js";
+import { registerToolReviewProjectionWork } from "../services/tool-review-projection-work.js";
+import { issueThreadInteractionService } from "../services/issue-thread-interactions.js";
 import { registerToolReviewInterruptionWork } from "../services/tool-review-interruption-work.js";
 import { writeToolReviewChange } from "../services/tool-review-work-notifications.js";
 import { deleteCompany } from "../services/company-deletion.js";
@@ -281,6 +284,8 @@ describeEmbeddedPostgres("tool gateway service", () => {
       await coordinator?.stop(); coordinator = undefined;
       vi.useRealTimers(); vi.restoreAllMocks();
       await db.execute(sql`drop trigger if exists sleep_review_fail on tool_invocations`);
+      await db.execute(sql`drop trigger if exists sleep_projection_fail on issue_thread_interactions`);
+      await db.execute(sql`drop function if exists sleep_projection_fail()`);
       await db.execute(sql`drop function if exists sleep_review_fail()`);
       await db.execute(sql`drop sequence if exists sleep_review_failure_attempt`);
       expect(errors).toEqual([]);
@@ -351,6 +356,357 @@ describeEmbeddedPostgres("tool gateway service", () => {
       });
       return { provider, release, started };
     }
+
+    describe("tool review projection worker", () => {
+      async function startProjection() {
+        coordinator = createDeliveryWorkCoordinator({ owner: db, canRun: () => !draining,
+          canReconcile: () => true, onError: error => errors.push(error) });
+        await registerToolReviewProjectionWork(coordinator, { sweep: gateway.repairActionReviewProjections, companies: gateway.actionReviewProjectionCompanies }, () => !draining).ready;
+      }
+      async function savedOutcome(pending: Awaited<ReturnType<typeof request>>, source = db,
+        status: "executed" | "failed" | "expired" | "cancelled" = "executed") {
+        await writeToolReviewChange(source, pending.companyId, async tx => {
+          await tx.update(toolInvocations).set({ status: status === "executed" ? "succeeded" : "failed",
+            errorCode: status === "executed" ? null : "saved_failure", errorMessage: null,
+            resultSummary: { summary: "Durable result" }, completedAt: new Date() })
+            .where(eq(toolInvocations.id, pending.invocationId));
+          await tx.update(toolActionRequests).set({ status, updatedAt: new Date() })
+            .where(eq(toolActionRequests.id, pending.id));
+        });
+      }
+      async function acceptedCard(pending: Awaited<ReturnType<typeof request>>) {
+        expect(pending.interactionId).not.toBeNull();
+        await db.update(issueThreadInteractions).set({ status: "accepted", result: { version: 1, outcome: "accepted" } })
+          .where(eq(issueThreadInteractions.id, pending.interactionId!));
+      }
+      async function projection(pending: Awaited<ReturnType<typeof request>>) {
+        const [row] = await db.select().from(issueThreadInteractions).where(eq(issueThreadInteractions.id, pending.interactionId!));
+        return (row.result as { toolAction?: { status: string; resultSummary: string; errorCode: string | null } } | null)?.toolAction;
+      }
+
+      it("becomes quiet with configuration and repairs a real foreground approval without replay", async () => {
+        await startProjection(); await quiet();
+        const pending = await request();
+        await gateway.approveActionRequest({ companyId: fixture.company.id, actionRequestId: pending.id, actor: { userId: "board" } });
+        await quiet(); expect(await projection(pending)).toMatchObject({ status: "executed" });
+        expect(await db.select().from(toolCallEvents).where(eq(toolCallEvents.reasonCode, "approved_action_executed"))).toHaveLength(1);
+        const before = (await db.select().from(activityLog).where(eq(activityLog.action, "issue.thread_interaction_updated"))).length;
+        await gateway.repairActionReviewProjections();
+        expect((await db.select().from(activityLog).where(eq(activityLog.action, "issue.thread_interaction_updated"))).length).toBe(before);
+      });
+
+      it("keeps projection scans scoped to the company whose review changed", async () => {
+        const other = await createRunFixture(db);
+        await db.insert(toolPolicies).values(reviewNotePolicyRow(other.company));
+        const foreign = await request(gateway, db, other);
+        await gateway.approveActionRequest({ companyId: other.company.id, actionRequestId: foreign.id, actor: { userId: "board" } });
+        await startProjection(); await quiet();
+        const before = await projection(foreign);
+        const reads: Array<{ query: string; params: unknown[] }> = [];
+        const debug = db.$client.options.debug;
+        db.$client.options.debug = (_id, query, params) => {
+          if (/^select/i.test(query) && query.includes('"tool_action_requests"') && query.includes("coalesce("))
+            reads.push({ query, params: [...params] });
+        };
+        try {
+          for (let index = 0; index < 3; index++) {
+            const pending = await request();
+            await gateway.approveActionRequest({ companyId: fixture.company.id, actionRequestId: pending.id, actor: { userId: "board" } });
+            await settle(1500); expect(await projection(pending)).toMatchObject({ status: "executed" });
+          }
+        } finally { db.$client.options.debug = debug; }
+        expect(reads.length).toBeGreaterThan(0);
+        for (const read of reads) {
+          expect(read.query).toContain('"tool_action_requests"."company_id" =');
+          expect(read.params).toContain(fixture.company.id);
+          expect(read.params).not.toContain(other.company.id);
+        }
+        expect(await projection(foreign)).toEqual(before); await quiet();
+      });
+
+      it("uses one candidate scan for a committed company hint with matching retained history", async () => {
+        const pending = await request();
+        await gateway.approveActionRequest({ companyId: fixture.company.id, actionRequestId: pending.id, actor: { userId: "board" } });
+        await startProjection(); await quiet();
+        const reads: string[] = [];
+        const debug = db.$client.options.debug;
+        db.$client.options.debug = (_id, query) => {
+          if (/^select/i.test(query) && query.includes('"tool_action_requests"') && query.includes("coalesce(")) reads.push(query);
+        };
+        try {
+          await writeToolReviewChange(db, pending.companyId, async tx => {
+            await tx.update(toolActionRequests).set({ updatedAt: new Date() }).where(eq(toolActionRequests.id, pending.id));
+          });
+          await settle();
+          expect(reads).toHaveLength(1);
+          await quiet();
+          expect(reads).toHaveLength(1);
+          reads.length = 0;
+          expect(await gateway.repairActionReviewProjections(fixture.company.id)).toMatchObject({ scanned: 0, retry: false });
+          expect(reads).toHaveLength(1);
+        } finally { db.$client.options.debug = debug; }
+      });
+
+      it("backs off unresolved cards to five minutes and clears the retry after settlement", async () => {
+        const pending = await request();
+        await savedOutcome(pending, db, "failed");
+        await startProjection();
+        for (const delay of [30_000, 60_000, 120_000, 240_000, 300_000, 300_000]) {
+          const next = coordinator!.nextWakeAt();
+          expect(next).not.toBeNull();
+          expect(next! - Date.now()).toBeGreaterThan(delay - 1500);
+          expect(next! - Date.now()).toBeLessThanOrEqual(delay);
+          await settle(next! - Date.now() + 100);
+        }
+        expect(await projection(pending)).toBeUndefined();
+        await acceptedCard(pending);
+        await writeToolReviewChange(db, pending.companyId, async tx => {
+          await tx.update(toolActionRequests).set({ updatedAt: new Date() }).where(eq(toolActionRequests.id, pending.id));
+        });
+        await settle();
+        expect(await projection(pending)).toMatchObject({ status: "failed" });
+        await quiet();
+      });
+
+      it("does not wake projection repair for ordinary confirmation creation, replacement, or cancellation", async () => {
+        await startProjection(); await quiet();
+        const interactions = issueThreadInteractionService(db);
+        const scope = { id: fixture.issue.id, companyId: fixture.company.id };
+        const [recipient] = await db.insert(agents).values({ companyId: fixture.company.id,
+          name: "Plan recipient", role: "engineer", adapterType: "process" }).returning();
+        const input = { kind: "request_confirmation" as const, addresseeAgentId: recipient.id,
+          payload: { version: 1 as const, prompt: "Approve this plan?" } };
+        const signal = vi.fn();
+        const unsubscribe = subscribeDeliveryWork(db, DELIVERY_QUEUES.toolReviewProjection, signal);
+        const reads: string[] = [];
+        const debug = db.$client.options.debug;
+        db.$client.options.debug = (_id, query) => {
+          if (/^select/i.test(query) && query.includes('"tool_action_requests"') && query.includes("coalesce(")) reads.push(query);
+        };
+        try {
+          const first = await interactions.create(scope, input, { agentId: fixture.agent.id });
+          const second = await interactions.create(scope, input, { agentId: fixture.agent.id });
+          const cancelled = await interactions.cancelPendingForDeletedAddressee(fixture.company.id, recipient.id);
+          expect(cancelled.map(row => row.id)).toEqual([second.id]);
+          expect((await db.select().from(issueThreadInteractions).where(eq(issueThreadInteractions.id, first.id)))[0].status).toBe("expired");
+          await settle();
+          expect(signal).not.toHaveBeenCalled();
+          expect(reads).toEqual([]);
+          await quiet();
+        } finally { unsubscribe(); db.$client.options.debug = debug; }
+      });
+
+      it.each(["executed", "failed", "expired", "cancelled"] as const)("reconstructs a saved %s result after restart and leaves terminal history quiet", async status => {
+        const pending = await request(); await acceptedCard(pending); await savedOutcome(pending, db, status);
+        await startProjection(); await quiet();
+        expect(await projection(pending)).toMatchObject({ status: status === "cancelled" ? "expired" : status,
+          resultSummary: "Durable result", errorCode: status === "executed" ? null : "saved_failure" });
+        expect(await db.select().from(toolCallEvents).where(eq(toolCallEvents.reasonCode, "approved_action_executed"))).toEqual([]);
+      });
+
+      it("retains a first terminal write during drain without passive scans", async () => {
+        const pending = await request(); await acceptedCard(pending);
+        await startProjection(); await quiet(); draining = true;
+        await savedOutcome(pending); await settle();
+        const reads = vi.spyOn(db, "select");
+        await settle(60 * 60_000); expect(reads).not.toHaveBeenCalled(); reads.mockRestore();
+        expect(await projection(pending)).toBeUndefined();
+        draining = false; await settle(); await quiet();
+        expect(await projection(pending)).toMatchObject({ status: "executed" });
+      });
+
+      it.each([false, true])("waits for the outer outcome transaction (rollback %s)", async rollback => {
+        const pending = await request(); await acceptedCard(pending); await startProjection(); await quiet();
+        let entered!: () => void, release!: () => void;
+        const ready = new Promise<void>(resolve => { entered = resolve; });
+        const gate = new Promise<void>(resolve => { release = resolve; });
+        const aborted = new Error("fixture rollback");
+        const running = db.transaction(async tx => {
+          await savedOutcome(pending, tx as unknown as typeof db);
+          entered(); await gate; if (rollback) throw aborted;
+        }).catch(error => { if (error !== aborted) throw error; });
+        await ready;
+        try { await vi.advanceTimersByTimeAsync(60_000); expect(await projection(pending)).toBeUndefined(); }
+        finally { release(); await running; }
+        await vi.waitFor(async () => {
+          await vi.advanceTimersByTimeAsync(30_000);
+          expect(idleWorkSnapshot().active).toBe(0);
+          if (rollback) expect(await projection(pending)).toBeUndefined();
+          else expect(await projection(pending)).toMatchObject({ status: "executed" });
+        }, { timeout: 5000 });
+        await quiet();
+      });
+
+      it("retries a failed projection through drain without executing the saved action", async () => {
+        const pending = await request(); await acceptedCard(pending); await savedOutcome(pending);
+        await db.execute(sql`create function sleep_projection_fail() returns trigger language plpgsql as $$
+          begin raise exception 'projection fixture failure'; end $$`);
+        await db.execute(sql`create trigger sleep_projection_fail before update on issue_thread_interactions
+          for each row when (new.result->'toolAction'->>'status' = 'executed') execute function sleep_projection_fail()`);
+        await startProjection(); expect(errors.length).toBeGreaterThan(0); errors.length = 0;
+        expect(await projection(pending)).toBeUndefined();
+        draining = true;
+        await db.execute(sql`drop trigger sleep_projection_fail on issue_thread_interactions`);
+        await settle(60 * 60_000); draining = false;
+        await vi.waitFor(async () => {
+          await vi.advanceTimersByTimeAsync(30_000);
+          expect(await projection(pending)).toMatchObject({ status: "executed" });
+        }, { timeout: 5000 });
+        await quiet();
+        expect(await db.select().from(toolCallEvents).where(eq(toolCallEvents.reasonCode, "approved_action_executed"))).toEqual([]);
+      });
+
+      it("backs off a failing company while another company's projection completes", async () => {
+        const other = await createRunFixture(db);
+        await db.insert(toolPolicies).values(reviewNotePolicyRow(other.company));
+        const foreign = await request(gateway, db, other); await acceptedCard(foreign); await savedOutcome(foreign, db, "failed");
+        await db.execute(sql`create function sleep_projection_fail() returns trigger language plpgsql as $$
+          begin raise exception 'company projection fixture failure'; end $$`);
+        await db.execute(sql`create trigger sleep_projection_fail before update on issue_thread_interactions
+          for each row when (new.result->'toolAction'->>'status' = 'failed') execute function sleep_projection_fail()`);
+        await startProjection(); expect(errors).toHaveLength(1); errors.length = 0;
+        const retryAt = coordinator!.nextWakeAt(); expect(retryAt).not.toBeNull();
+        const pending = await request(); await acceptedCard(pending); await savedOutcome(pending);
+        await request(gateway, db, other);
+        await settle(5000);
+        expect(await projection(pending)).toMatchObject({ status: "executed" });
+        expect(await projection(foreign)).toBeUndefined();
+        expect(errors).toEqual([]); expect(coordinator!.nextWakeAt()).toBe(retryAt);
+        await db.execute(sql`drop trigger sleep_projection_fail on issue_thread_interactions`);
+        await settle(); await quiet();
+        expect(await projection(foreign)).toMatchObject({ status: "failed" });
+        expect(await db.select().from(toolCallEvents).where(eq(toolCallEvents.reasonCode, "approved_action_executed"))).toEqual([]);
+      });
+
+      it("rechecks the projection under lock when foreground repair wins the race", async () => {
+        const pending = await request(); await acceptedCard(pending); await savedOutcome(pending);
+        const transaction = db.transaction.bind(db);
+        let entered!: () => void, release!: () => void;
+        const ready = new Promise<void>(resolve => { entered = resolve; });
+        const gate = new Promise<void>(resolve => { release = resolve; });
+        const intercepted = vi.spyOn(db, "transaction").mockImplementationOnce(async callback => {
+          entered(); await gate; return transaction(callback);
+        });
+        const repair = gateway.repairActionReviewProjections();
+        await ready;
+        try { await gateway.repairActionReviewProjections(); } finally { release(); }
+        await repair; intercepted.mockRestore();
+        const updates = await db.select().from(activityLog).where(and(eq(activityLog.companyId, fixture.company.id),
+          eq(activityLog.action, "issue.thread_interaction_updated")));
+        expect(updates).toHaveLength(1);
+        expect(await projection(pending)).toMatchObject({ status: "executed" });
+        await startProjection(); await quiet();
+      });
+
+      async function projectionBacklog(count: number) {
+        const pending = await request(); await acceptedCard(pending); await savedOutcome(pending, db, "failed");
+        const [template] = await db.select().from(issueThreadInteractions).where(eq(issueThreadInteractions.id, pending.interactionId!));
+        const cards = Array.from({ length: count - 1 }, () => ({ ...template, id: randomUUID(), idempotencyKey: randomUUID() }));
+        if (cards.length) await db.insert(issueThreadInteractions).values(cards);
+        const requests = cards.map((card, index) => ({ ...pending,
+          id: `ffffffff-ffff-4fff-afff-${String(index).padStart(12, "0")}`,
+          interactionId: card.id, status: "failed" as const }));
+        if (requests.length) await db.insert(toolActionRequests).values(requests);
+        const cardByRequest = new Map([pending, ...requests].map(row => [row.id, row.interactionId!]));
+        const reflect = async (id: string) => {
+          await db.update(issueThreadInteractions).set({ result: sql`${issueThreadInteractions.result}
+            || ${JSON.stringify({ toolAction: { status: "failed" } })}::jsonb` })
+            .where(eq(issueThreadInteractions.id, cardByRequest.get(id)!));
+        };
+        return { cardByRequest, reflect };
+      }
+
+      it("bounds a projection worker pass and continues its saved backlog", async () => {
+        await projectionBacklog(501);
+        await startProjection();
+        const projected = async () => (await db.select().from(issueThreadInteractions))
+          .filter(card => (card.result as { toolAction?: { status: string } } | null)?.toolAction?.status === "failed").length;
+        expect(await projected()).toBe(500);
+        expect(coordinator!.nextWakeAt()).not.toBeNull();
+        await settle(2000); await quiet();
+        expect(await projected()).toBe(501);
+        expect(await db.select().from(toolCallEvents).where(eq(toolCallEvents.reasonCode, "approved_action_executed"))).toEqual([]);
+      });
+
+      it("clears an abandoned projection cursor after empty reconstruction before the next write", async () => {
+        const backlog = await projectionBacklog(3);
+        const service = toolReviewProjectionService(db, input => backlog.reflect(input.actionRequestId));
+        expect(await service.sweep(fixture.company.id, { maxRows: 1 })).toMatchObject({ scanned: 1, truncated: true });
+        for (const id of backlog.cardByRequest.keys()) await backlog.reflect(id);
+        expect(await service.companies(fixture.company.id)).toEqual([]);
+        const firstId = [...backlog.cardByRequest.keys()].sort()[0]!;
+        await db.update(issueThreadInteractions).set({ result: sql`${issueThreadInteractions.result} - 'toolAction'` })
+          .where(eq(issueThreadInteractions.id, backlog.cardByRequest.get(firstId)!));
+        expect(await service.sweep(fixture.company.id, { maxRows: 500 })).toMatchObject({ scanned: 1, retry: false });
+      });
+
+      it.each(["abort", "drain"] as const)("stops projection between rows on %s and resumes without losing cards", async mode => {
+        const backlog = await projectionBacklog(5), controller = new AbortController();
+        const seen: string[] = []; let admitted = true;
+        const service = toolReviewProjectionService(db, async input => {
+          seen.push(input.actionRequestId); await backlog.reflect(input.actionRequestId);
+          if (seen.length === 1) { if (mode === "abort") controller.abort(); else admitted = false; }
+        });
+        expect(await service.sweep(fixture.company.id, { maxRows: 500, signal: controller.signal, shouldContinue: () => admitted }))
+          .toMatchObject({ scanned: 1, retry: true, truncated: true });
+        expect(seen).toHaveLength(1);
+        admitted = true;
+        expect(await service.sweep(fixture.company.id, { maxRows: 500 })).toMatchObject({ scanned: 4, retry: false });
+        expect(new Set(seen).size).toBe(5);
+      });
+
+      it.each(["unprojectable", "failed"] as const)("continues beyond a full %s page before revisiting it", async mode => {
+        const backlog = await projectionBacklog(501);
+        const blocked = new Set([...backlog.cardByRequest.keys()].sort().slice(0, 500)), seen: string[] = [];
+        const service = toolReviewProjectionService(db, async input => {
+          seen.push(input.actionRequestId);
+          if (blocked.has(input.actionRequestId)) { if (mode === "failed") throw new Error("saved card unavailable"); return; }
+          await backlog.reflect(input.actionRequestId);
+        });
+        const first = service.sweep(fixture.company.id, { maxRows: 500 });
+        if (mode === "failed") await expect(first).rejects.toBeInstanceOf(AggregateError);
+        else expect(await first).toMatchObject({ scanned: 500, retry: true, truncated: true });
+        expect(seen).toHaveLength(500); seen.length = 0;
+        expect(await service.sweep(fixture.company.id, { maxRows: 500 })).toMatchObject({ scanned: 1, retry: true, truncated: false });
+        expect(seen).toHaveLength(1); expect(blocked.has(seen[0]!)).toBe(false);
+      });
+
+      it("does not starve later pages behind a card that cannot yet reflect its outcome", async () => {
+        const pending = await request(); await savedOutcome(pending, db, "failed");
+        const [template] = await db.select().from(issueThreadInteractions).where(eq(issueThreadInteractions.id, pending.interactionId!));
+        const copies = Array.from({ length: 101 }, () => ({ ...template, id: randomUUID(), idempotencyKey: randomUUID(),
+          status: "accepted" as const, result: { version: 1 as const, outcome: "accepted" as const } }));
+        await db.insert(issueThreadInteractions).values(copies);
+        await db.insert(toolActionRequests).values(copies.map((card, index) => ({ ...pending,
+          id: `ffffffff-ffff-4fff-afff-${String(index).padStart(12, "0")}`,
+          interactionId: card.id, status: "failed" as const })));
+        await startProjection();
+        expect(coordinator!.nextWakeAt()).not.toBeNull();
+        const cards = await db.select().from(issueThreadInteractions);
+        expect(cards.filter(card => (card.result as { toolAction?: { status: string } } | null)?.toolAction?.status === "failed")).toHaveLength(101);
+        await db.update(issueThreadInteractions).set({ addresseeAgentId: fixture.agent.id }).where(eq(issueThreadInteractions.id, pending.interactionId!));
+        await issueThreadInteractionService(db).cancelPendingForDeletedAddressee(fixture.company.id, fixture.agent.id);
+        await settle(); await quiet();
+        expect(await projection(pending)).toMatchObject({ status: "failed" });
+      });
+
+      it.each([false, true])("reactivates when an administrative card mutation overwrites a settled projection (legacy %s)", async legacy => {
+        const pending = await request();
+        if (legacy) {
+          const [card] = await db.select().from(issueThreadInteractions).where(eq(issueThreadInteractions.id, pending.interactionId!));
+          const payload = { ...card.payload } as Record<string, unknown>;
+          delete payload.toolAction; delete payload.target;
+          await db.update(issueThreadInteractions).set({ payload }).where(eq(issueThreadInteractions.id, pending.interactionId!));
+        }
+        await db.update(issueThreadInteractions).set({ addresseeAgentId: fixture.agent.id,
+          result: { version: 1, outcome: "accepted" } }).where(eq(issueThreadInteractions.id, pending.interactionId!));
+        await savedOutcome(pending, db, "failed"); await startProjection(); await quiet();
+        expect(await projection(pending)).toMatchObject({ status: "failed" });
+        await issueThreadInteractionService(db).cancelPendingForDeletedAddressee(fixture.company.id, fixture.agent.id);
+        await settle(); await quiet();
+        expect(await projection(pending)).toMatchObject({ status: "failed", errorCode: "saved_failure" });
+      });
+    });
 
     describe("interrupted review recovery worker", () => {
       async function startInterruption() {

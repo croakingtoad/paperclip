@@ -18,7 +18,7 @@ Do not mark an item done from a timer removal or a green check alone.
 | 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Pending |
 | 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Pending |
 | 06 | Tool connection health | Configuration/use activation and defined proactive health deadlines | Pending |
-| 07 | Secret proposals, tool reviews, gateway tokens | Separate expiry/scrub/recovery owners | Secret proposals: [#17446](https://github.com/paperclipai/paperclip/pull/17446), merged; gateway credentials: [#17450](https://github.com/paperclipai/paperclip/pull/17450), merged; pending tool-review expiry: [#17453](https://github.com/paperclipai/paperclip/pull/17453), merged; approved recovery: [#17454](https://github.com/paperclipai/paperclip/pull/17454), merged after current-head CI and both 5/5 reviews; interrupted claims: [#17458](https://github.com/paperclipai/paperclip/pull/17458), integration verified and awaiting fresh CI/review; projection: [#17468](https://github.com/paperclipai/paperclip/pull/17468), interaction-link index verified and awaiting fresh CI/review |
+| 07 | Secret proposals, tool reviews, gateway tokens | Separate expiry/scrub/recovery owners | Secret proposals: [#17446](https://github.com/paperclipai/paperclip/pull/17446), merged; gateway credentials: [#17450](https://github.com/paperclipai/paperclip/pull/17450), merged; pending tool-review expiry: [#17453](https://github.com/paperclipai/paperclip/pull/17453), merged; approved recovery: [#17454](https://github.com/paperclipai/paperclip/pull/17454), merged after current-head CI and both 5/5 reviews; interrupted claims: [#17458](https://github.com/paperclipai/paperclip/pull/17458), merged after current-head CI and both 5/5 reviews; projection: [#17468](https://github.com/paperclipai/paperclip/pull/17468), interaction-link index verified and awaiting fresh CI/review |
 | 08 | GitHub connection events and continuity | Event discovery/replay and credential continuity separately | Pending |
 | 09 | Merged-PR confirmations | Candidate writes, webhook activation where supported, outstanding-candidate fallback | Pending |
 | 10 | External-object refresh | Configuration changes, refresh deadlines, source events | Pending |
@@ -280,3 +280,58 @@ initial concurrent-run timeout is retained above as evidence, not hidden.
 Workspace typecheck/build and migration safety/numbering pass. The first four
 PRs are mergeable and have all checks passed at their recorded heads. #17454
 is mergeable with fresh checks and review in progress at `7a1cf03e62`.
+
+Slice 06 is [#17458](https://github.com/paperclipai/paperclip/pull/17458), head
+`85003a7ac4`, based on #17454. Greptile review was requested and the PR is
+attached to this chat. Slice 05 has fresh Greptile 5/5 at `7a1cf03e62`; CI is
+running with no failure in the latest snapshot. The next branch is
+`codex/sleep-07-tool-review-projection`, based on #17458. No seventh implementation
+or readiness is claimed yet. The full remaining inventory stays in scope.
+
+
+## Slice 07: tool-review interaction projection
+
+The implementation removes the last combined review sweep from the main tick.
+It pages terminal mismatches and retains retries only for actual debt or failures.
+Gateway reflection keeps locks, current-state checks, activity, and continuation
+ownership; concurrent identical repairs do not write twice. The producer audit
+also covers administrative card result replacements, before the mutation in the
+existing transaction. See [projection repair](../idle-tool-review-projection.md).
+
+Twelve new lifecycle cases are included in 148 passing service/startup tests.
+Gateway acceptance passes all 92 tests and workspace typechecking passes. The
+initial missing-state bug and referenced-key fixture failure are recorded in the
+behavior document. Build and additional consumer regressions are running; no
+seventh PR is claimed ready yet.
+
+Historical parent evidence at the initial migration: #17454 at `7a1cf03e62`
+and #17458 at `85003a7ac4` passed the recorded CI matrices and Greptile review.
+Those snapshots preceded their current-head review and landing. The first six
+stack PRs have now merged. The full remaining inventory is still in scope.
+
+Initial slice 07 local verification: 815 selected tests passed, with workspace
+typecheck and build passing. One initial interaction cleanup-hook timeout is recorded in
+the behavior document; the complete isolated suite then passed. Both parent
+PRs #17454 and #17458 now have every check passed and are mergeable, including
+the additional Paperclip Review checks. Full CI/review for slice 07 is next.
+
+
+Slice 07 current integration: master `f6bc653f7f` contains the first six landed
+slices and the independent identity/resume/sidebar performance work. This slice
+adds generated concurrent interaction-link index migration `0386_steady_epoch`
+and retains five schema snapshots. Projection worker passes stop at 500 rows,
+honor abort/drain between rows, and resume past failed or unprojectable pages;
+empty reconstruction clears obsolete cursors. Six real regressions failed before
+the fixes. All 320 integrated gateway/projection/startup/deadline/identity/HTTP
+cases, server types and build pass; 35 independent master files are preserved
+exactly. Current-head CI and Greptile/Ponytail review remain required. Earlier
+case counts above describe the broader selections at their original revisions.
+
+
+Slice 07 follow-up: scoped hints avoid redundant discovery, empty sweeps avoid a
+second candidate read, and unresolved-card retries back off to five minutes.
+Fresh writes reactivate promptly and settlement is quiet. The full affected
+gateway/startup/deadline selection passes 222 cases; server types/build pass.
+The initial invalid one-wake-per-approval assertion and corrected isolated-hint
+measurement are retained in the behavior document. Current-head CI/reviews remain
+required before this slice can merge.
