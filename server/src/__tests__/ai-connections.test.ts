@@ -284,7 +284,9 @@ describe("managed AI connections", () => {
   });
   it("blocks missing identity, incompatible providers, and cross-company explicit selections", async () => {
     await expect(service.select({ ...input, userId: null })).rejects.toThrow("responsible user");
-    await expect(service.select({ ...input, userId: "alice", adapterType: "codex_local" })).rejects.toThrow("compatible");
+    // The rejection names the provider the harness wants and the one bound, so
+    // the operator does not have to guess which end to change.
+    await expect(service.select({ ...input, userId: "alice", adapterType: "codex_local" })).rejects.toThrow("Select a OpenAI connection; the current selection uses Claude");
     const account = await service.select({ ...input, userId: "alice" });
     await expect(service.select({ ...input, companyId: otherCompanyId, userId: "alice", binding: { ...binding, mode: "shared", connectionId: account.connection.id, grantId: account.grant.id } })).rejects.toThrow();
   });
