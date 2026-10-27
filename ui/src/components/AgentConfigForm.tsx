@@ -68,7 +68,6 @@ import {
   CollapsibleSection,
   DraftInput,
   DraftNumberInput,
-  DraftTextarea,
   help,
   adapterLabels,
   roleLabels,
@@ -1518,11 +1517,10 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
               />
             </Field>
             <Field label="Capabilities" hint={help.capabilities}>
-              <DraftTextarea
+              <MarkdownEditor
                 value={eff<string | null>("identity", "capabilities", props.agent.capabilities) ?? ""}
-                onCommit={(v) => mark("identity", "capabilities", v.trim() ? v : null)}
+                onChange={(v) => mark("identity", "capabilities", v.trim() ? v : null)}
                 placeholder="What this agent can do. Markdown is rendered on the agent Overview."
-                ariaLabel="Capabilities"
               />
             </Field>
             {isLocal && !props.hidePromptTemplate && (

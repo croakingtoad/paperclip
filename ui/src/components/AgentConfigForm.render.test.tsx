@@ -3397,12 +3397,15 @@ describe("AgentConfigForm environment selector", () => {
   it("edits Identity capabilities and saves the text, clearing it back to null when emptied", async () => {
     const result = await renderForm([], { capabilities: "Ships React UI." });
     roots.push(result.root);
-    const capabilities = result.container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Capabilities"]')!;
+    // Capabilities renders through the shared MarkdownEditor mock, which labels
+    // its textarea with the field placeholder (DraftTextarea used aria-label="Capabilities").
+    const capabilities = result.container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="What this agent can do. Markdown is rendered on the agent Overview."]',
+    )!;
     expect(capabilities).toBeTruthy();
     expect(capabilities.value).toBe("Ships React UI.");
 
     await act(async () => setTextareaValue(capabilities, "Ships React UI and PWA shells."));
-    await act(async () => { capabilities.focus(); capabilities.blur(); });
     await flushReact();
     const save = [...result.container.querySelectorAll("button")].find(button => button.textContent?.trim() === "Save")!;
     await act(async () => save.click());
@@ -3411,7 +3414,6 @@ describe("AgentConfigForm environment selector", () => {
     );
 
     await act(async () => setTextareaValue(capabilities, "   "));
-    await act(async () => { capabilities.focus(); capabilities.blur(); });
     await flushReact();
     await act(async () => save.click());
     expect(result.onSave).toHaveBeenLastCalledWith(expect.objectContaining({ capabilities: null }));
