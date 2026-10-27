@@ -939,8 +939,11 @@ as the source Runner package.
 
 For native OpenCode and Cursor on Daytona, a complete installed Paperclip release
 also selects its packaged Linux daemon and provider-pack identity automatically.
-Use the matching Paperclip Daytona image: the controller verifies the image's
-pack manifest, executable hashes, bridge tree, and pinned versions before launch.
+Use a qualified Paperclip Daytona image. For an OS-protected pack, startup
+checks the selected provider interface and platform from its small manifest in
+the existing runner metadata query. It does not rescan the pack or require the
+same app source revision. Writable or legacy installations retain full content
+verification.
 The controller's operating system does not determine the remote daemon target.
 
 Native Claude remote execution also selects the Linux x64 or ARM64 daemon and
@@ -1835,6 +1838,21 @@ binding, then applies the existing run and operation permission checks.
 existing public helpers. Keep session policy changes separate from run
 orchestration changes.
 
+Explicit continuation admission reads only task/comment identity and dispatch
+evidence from the saved context. Its preflight reads the historical adapter type
+and workspace sync receipt. The coordinator and run locks retain their order.
+The locked reread retains the complete Runner profile because suspended-session
+and quarantined-cleanup proofs parse the exact saved execution input. Other run
+and dispatch paths retain their existing reads.
+
+Measure these two admission queries with
+`pnpm --filter @paperclipai/server exec tsx ../scripts/benchmark-continuation-run-reads.ts --baseline-ref=<pre-fix-commit>`.
+The synthetic PostgreSQL fixture compares the admission result and reports exact
+text-format DataRow frame bytes, SQL samples, and execution plans. It excludes
+TLS and protocol metadata. To use an isolated external database, set
+`PAPERCLIP_CONTINUATION_BENCHMARK_DATABASE_URL` to a disposable database ending
+in `_test`. The harness applies migrations there and adds synthetic fixtures.
+
 Retry scheduling is in `server/src/services/heartbeat/retries.ts`. It owns bounded
 retry schedules, connection and workspace contention deferrals, shared-workspace
 holder checks, due retry promotion, and retry-now requests. `createHeartbeatRetries`
@@ -1998,6 +2016,18 @@ selection uses `allow` permissions and a `per_turn` lifecycle. Native `ask` and
 extra arguments, model variants, and inherited permission rules require the
 Legacy runner; incompatible settings return remediation instead of being ignored.
 Saved OpenCode agents keep their runner and runtime policies.
+
+Plugin environment drivers can declare `requiresAgent: true` when their leases
+need an agent-owned resource. Setup saves the draft and environment, runs its
+existing lifecycle preparation, and waits in `verifying` with the `setup` hold.
+The worker becomes idle there until the user finishes hiring. Connection tests
+use that draft's identity and a bounded Core-issued probe; ordinary tasks remain
+blocked. Environment changes save immediately, preserve the selected account,
+and invalidate the previous test. Tests without an agent report that prerequisite
+without allocating a lease. Finishing setup still verifies the saved configuration.
+Companies that require hire approval keep drafts paused and defer allocation and
+verification until that approval. The wizard saves the account with a pending
+verification warning instead of requiring a pre-approval computer.
 
 Pi also requires an explicit `provider/model` before testing or hiring; inactive
 setup drafts may precede model selection. Install its pinned runtime on the
@@ -2192,7 +2222,15 @@ Historical v1 `provider-pack.tar.zst` receipts remain readable. Missing sidecars
 remote zstd, compatible GNU tar/checksum tools, or the Node 18+ helper retain
 directory staging; invalid sidecars fail
 closed. Keep transport files outside the pack so they cannot include themselves.
-Matching staged/preinstalled packs remain preferred and never transfer archives.
+Compatible protected image packs remain preferred and never transfer archives.
+The Runner's `src/live/provider-pack-contract.json` declares interface revisions;
+bump only the affected interface when its runner/pack contract breaks. Qualify
+and seal packs at image publication. The fast path requires root-owned,
+non-writable ancestors and manifest, and rejects writable aliases. The selected
+pack's own artifact identities feed launch and the recovery receipt. Reattachment
+keeps that exact identity; compatibility is a fresh-launch selection rule.
+Older packs without the declaration retain content verification until the image
+is updated. Selected ACPX agent profile checks remain in force.
 Daytona detects gzip/zstd headers and skips redundant transport compression.
 
 ### Remote GitHub launcher staging
@@ -2351,6 +2389,34 @@ incomplete bootstrap, repeated crashes with steering, and fail-closed process
 identity mismatches.
 
 ## App-Shipped Skills Catalog
+
+Plugin environment drivers can declare `skillKeys` that reference their own
+manifest-managed skills. Selecting that environment adds those skills to the
+normal authorized skill selection, including an explicitly empty optional
+selection. Core installs a missing managed skill in the current company's
+library during lifecycle reconciliation or new-run admission and preserves existing
+skill edits and explicit version pins. New managed skills use
+`plugin-<short-plugin-id>-<skill-slug>` for both the library slug and SKILL.md name.
+The short ID is the final dot-separated plugin ID component, without a leading
+`plugin-`. An unrelated skill can keep the same slug in a separate canonical
+record. The required environment skill wins during delivery: a selected company
+skill with the same slug or name is omitted and reported as shadowed. Stored agent
+assignments and both library records remain unchanged. Run warnings and snapshots,
+and the plugin runtime response, identify the omitted key and the winning key. Existing company copies keep their edits and names
+until reset. Lifecycle callers request installation with
+`agents.getRuntime(agentId, companyId, undefined, true)`; ordinary runtime reads and
+recovery do not install newly declared skills. Run
+preparation captures the same immutable versions as ordinary assignments;
+recovery uses the saved selection. The lifecycle runtime reader includes the
+effective default environment's skills before synchronizing the persistent home.
+A task provider can pass its selected environment ID to `agents.getRuntime` when
+a task overrides that default. This
+contract currently applies to `driver: "plugin"` environments. Other drivers
+and plugin drivers without `skillKeys` keep their existing behavior. No agent
+configuration is rewritten, and no background scan is added. Changes to implicitly
+selected skills, the effective default environment, or plugin requirements enqueue
+normal durable runtime events, so an idle ready computer receives updates without
+a new run. Failed synchronization retains the event for the existing retry path.
 
 The Paperclip app ships a curated catalog of company skills out of the box. The
 catalog is a workspace package at `packages/skills-catalog`:
