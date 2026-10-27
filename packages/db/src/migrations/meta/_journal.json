@@ -2717,6 +2717,13 @@
       "when": 1793138457589,
       "tag": "0389_brave_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 390,
+      "version": "7",
+      "when": 1793139659776,
+      "tag": "0390_salty_killraven",
+      "breakpoints": true
     }
   ]
 }
