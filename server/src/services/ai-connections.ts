@@ -288,9 +288,9 @@ export function aiConnectionService(db: Db) {
         const requiredName = AI_CONNECTION_CAPABILITIES[requiredProvider].name;
         // Spelling heuristic (not phonetic) — correct for all current provider display names
         const article = /^[AEIOU]/i.test(requiredName) ? "an" : "a";
-        throw unprocessable(
+        throw aiConnectionConfigurationFailure(
+          "ai_connection_incompatible",
           `Select ${article} ${requiredName} connection; the current selection uses ${AI_CONNECTION_CAPABILITIES[binding.provider].name}`,
-          { code: "ai_connection_incompatible" },
         );
       }
       throw aiConnectionConfigurationFailure("ai_connection_incompatible", "Select an AI connection compatible with this harness and model");
