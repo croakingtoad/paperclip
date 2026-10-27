@@ -3257,14 +3257,7 @@ export function agentRoutes(
     }
     const provider = asNonEmptyString(req.query.provider);
     if (type === "opencode_local" && provider === "openrouter") {
-      const gatewayProviders = await listGatewayProviders();
-      const [openrouterModels, allModels] = await Promise.all([
-        listOpenRouterModels(refresh),
-        listAdapterModels("opencode_local"),
-      ]);
-      const gatewayIds = new Set(gatewayProviders.map((p) => p.id));
-      const gatewayModels = allModels.filter((m) => gatewayIds.has(m.id.split("/")[0]));
-      res.json([...openrouterModels, ...gatewayModels]);
+      res.json(await listOpenRouterModels(refresh));
       return;
     }
     if (type === "paperclip_runner" && provider && !isPaperclipRunnerProvider(provider)) {
