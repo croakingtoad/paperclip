@@ -2703,6 +2703,13 @@
       "when": 1793136115698,
       "tag": "0387_boring_professor_monster",
       "breakpoints": true
+    },
+    {
+      "idx": 388,
+      "version": "7",
+      "when": 1793137983484,
+      "tag": "0388_ambitious_micromax",
+      "breakpoints": true
     }
   ]
 }
