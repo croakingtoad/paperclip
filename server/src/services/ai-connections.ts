@@ -30,8 +30,8 @@ import {
   aiConnectionMetadataSchema,
   aiSubscriptionNeedsIsolatedLogin,
   isAiConnectionCompatible,
-  resolveEffectiveAdapterType,
   supportsAiConnectionUsage,
+  aiRoutingHarness,
   type AiConnectionBinding,
   type AiConnectionAttribution,
   type AiConnectionMetadata,
@@ -49,13 +49,22 @@ import { logActivity } from "./activity-log.js";
 import { secretService } from "./secrets.js";
 import { probeAiConnectionUsage } from "./ai-connection-usage.js";
 
-const ADAPTER_REQUIRED_PROVIDER: Partial<Record<string, AiProvider>> = Object.fromEntries(
-  Object.entries(AI_CONNECTION_CAPABILITIES).flatMap(([provider, cap]) =>
-    Object.values(cap.methods).flatMap((method) =>
-      (method?.adapters ?? []).map((adapter) => [adapter, provider as AiProvider])
-    )
-  )
-);
+const ADAPTER_REQUIRED_PROVIDER: Partial<Record<string, AiProvider>> = (() => {
+  const providerSets = new Map<string, Set<AiProvider>>();
+  for (const [provider, cap] of Object.entries(AI_CONNECTION_CAPABILITIES)) {
+    for (const method of Object.values(cap.methods)) {
+      for (const adapter of method?.adapters ?? []) {
+        if (!providerSets.has(adapter)) providerSets.set(adapter, new Set());
+        providerSets.get(adapter)!.add(provider as AiProvider);
+      }
+    }
+  }
+  const result: Partial<Record<string, AiProvider>> = {};
+  for (const [adapter, providers] of providerSets) {
+    if (providers.size === 1) result[adapter] = [...providers][0];
+  }
+  return result;
+})();
 
 /** Same human audience displayed by the existing Connections identity controls. */
 function canUseCredential(
@@ -278,7 +287,7 @@ export function aiConnectionService(db: Db) {
         input.acpxAgent,
       )
     ) {
-      const effectiveAdapterType = resolveEffectiveAdapterType(
+      const effectiveAdapterType = aiRoutingHarness(
         input.adapterType,
         input.runnerProvider,
         input.acpxAgent,
