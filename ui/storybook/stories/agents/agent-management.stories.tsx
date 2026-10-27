@@ -522,6 +522,25 @@ function AgentConfigFormStory() {
   );
 }
 
+function AgentIdentityFormStory() {
+  return (
+    <AgentConfigForm
+      mode="edit"
+      agent={agentWith({
+        id: "agent-identity-story",
+        name: "CodexCoder",
+        role: "engineer",
+        title: "Senior Product Engineer",
+        capabilities:
+          "Ships product surfaces end to end: React/Tailwind UI, API wiring, and migration-safe schema changes. Escalates design-system questions rather than forking tokens.",
+      })}
+      onSave={() => undefined}
+      sectionLayout="cards"
+      hideInlineSave
+    />
+  );
+}
+
 function AgentSecretsFormStory() {
   return (
     <AgentConfigForm
@@ -786,6 +805,12 @@ function AgentManagementStories() {
           <Section eyebrow="AgentConfigForm" title="Adapter selection, runtime config, and env vars">
             <div className="max-w-4xl">
               <AgentConfigFormStory />
+            </div>
+          </Section>
+
+          <Section eyebrow="AgentConfigForm Identity" title="Name, title, role, manager, and capabilities">
+            <div className="max-w-4xl">
+              <AgentIdentityFormStory />
             </div>
           </Section>
 
