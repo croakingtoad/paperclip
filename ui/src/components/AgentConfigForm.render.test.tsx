@@ -6,7 +6,7 @@ import { flushSync } from "react-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Agent, Environment, UserSecretDefinition } from "@paperclipai/shared";
-import { getEnvironmentCapabilities } from "@paperclipai/shared";
+import { AGENT_ROLES, AGENT_ROLE_LABELS, getEnvironmentCapabilities } from "@paperclipai/shared";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ToastProvider } from "../context/ToastContext";
 import { AgentConfigForm, AdapterLoginPanel, subtractPersistedOverlay, type AdapterLoginDescriptor } from "./AgentConfigForm";
@@ -212,7 +212,7 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     id: "agent-1",
     companyId: "company-1",
     name: "Cody",
-    role: "Engineer",
+    role: "engineer",
     title: null,
     icon: null,
     status: "idle",
@@ -254,6 +254,18 @@ function setInputValue(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
   setter?.call(input, value);
   input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+  setter?.call(textarea, value);
+  textarea.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function setSelectValue(select: HTMLSelectElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+  setter?.call(select, value);
+  select.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 async function renderForm(
@@ -597,8 +609,12 @@ async function renderStatefulCreateClaudeSandbox(environments: Environment[]) {
   return { container, root, valuesRef };
 }
 
+// The Identity section renders its own `<select>` for Role, so an environment
+// assertion has to name the environment control rather than take the first one.
+const ENVIRONMENT_SELECT = 'select[aria-label="Environment override"]';
+
 async function selectEnvironment(container: HTMLElement, environmentId: string) {
-  const select = container.querySelector("select");
+  const select = container.querySelector<HTMLSelectElement>(ENVIRONMENT_SELECT);
   await act(async () => {
     if (select) {
       const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
@@ -808,7 +824,7 @@ describe("AgentConfigForm environment selector", () => {
     roots.push(result.root);
 
     expect(result.container.textContent).not.toContain("Environment override");
-    expect(result.container.querySelector("select")).toBeNull();
+    expect(result.container.querySelector<HTMLSelectElement>(ENVIRONMENT_SELECT)).toBeNull();
   });
 
   it("renders GPT-6 Astra and its model-specific reasoning efforts", async () => {
@@ -935,7 +951,7 @@ describe("AgentConfigForm environment selector", () => {
     roots.push(result.root);
 
     const text = result.container.textContent ?? "";
-    const selector = result.container.querySelector("select");
+    const selector = result.container.querySelector<HTMLSelectElement>(ENVIRONMENT_SELECT);
 
     expect(text).toContain("Environment");
     expect(text).toContain("Environment override");
@@ -962,7 +978,7 @@ describe("AgentConfigForm environment selector", () => {
     roots.push(result.root);
 
     const text = result.container.textContent ?? "";
-    const selector = result.container.querySelector("select");
+    const selector = result.container.querySelector<HTMLSelectElement>(ENVIRONMENT_SELECT);
 
     expect(text).toContain("Environment override");
     expect(selector?.textContent).toContain("E2B · sandbox");
@@ -984,7 +1000,7 @@ describe("AgentConfigForm environment selector", () => {
     roots.push(result.root);
 
     const text = result.container.textContent ?? "";
-    const selector = result.container.querySelector("select");
+    const selector = result.container.querySelector<HTMLSelectElement>(ENVIRONMENT_SELECT);
 
     expect(text).toContain("Environment override");
     expect(selector?.textContent).toContain("E2B · sandbox");
@@ -1006,7 +1022,7 @@ describe("AgentConfigForm environment selector", () => {
     roots.push(result.root);
 
     const text = result.container.textContent ?? "";
-    const selector = result.container.querySelector("select");
+    const selector = result.container.querySelector<HTMLSelectElement>(ENVIRONMENT_SELECT);
 
     expect(text).toContain("Environment override");
     expect(selector?.textContent).toContain("Default: Local");
@@ -1026,7 +1042,7 @@ describe("AgentConfigForm environment selector", () => {
     ]);
     roots.push(result.root);
 
-    const selector = result.container.querySelector("select");
+    const selector = result.container.querySelector<HTMLSelectElement>(ENVIRONMENT_SELECT);
 
     expect(selector?.textContent).toContain("Default: Paperclip Computer");
     expect(selector?.textContent).toContain("Paperclip Computer");
@@ -2428,7 +2444,7 @@ describe("AgentConfigForm environment selector", () => {
     await runTest(result.container);
     expect(findButton(result.container, "Sign in")).toBeTruthy();
 
-    const select = result.container.querySelector("select");
+    const select = result.container.querySelector<HTMLSelectElement>(ENVIRONMENT_SELECT);
     await act(async () => {
       if (select) {
         const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
@@ -3358,6 +3374,68 @@ describe("AgentConfigForm environment selector", () => {
 
     expect(result.container.textContent).toContain("Authenticated");
     expect(result.container.textContent).not.toContain("sk-ant-SECRET-TOKEN");
+  });
+
+  it("renders the Identity role select over every supported role and saves the chosen one", async () => {
+    const result = await renderForm([]);
+    roots.push(result.root);
+    const role = result.container.querySelector<HTMLSelectElement>('select[aria-label="Role"]')!;
+    expect(role).toBeTruthy();
+    expect([...role.options].map((option) => option.value)).toEqual([...AGENT_ROLES]);
+    expect([...role.options].map((option) => option.textContent)).toEqual(
+      AGENT_ROLES.map((value) => AGENT_ROLE_LABELS[value]),
+    );
+    expect(role.value).toBe("engineer");
+
+    await act(async () => setSelectValue(role, "devops"));
+    await flushReact();
+    const save = [...result.container.querySelectorAll("button")].find(button => button.textContent?.trim() === "Save")!;
+    await act(async () => save.click());
+    expect(result.onSave).toHaveBeenCalledWith(expect.objectContaining({ role: "devops" }));
+  });
+
+  it("edits Identity capabilities and saves the text, clearing it back to null when emptied", async () => {
+    const result = await renderForm([], { capabilities: "Ships React UI." });
+    roots.push(result.root);
+    // Capabilities renders through the shared MarkdownEditor mock, which labels
+    // its textarea with the field placeholder (DraftTextarea used aria-label="Capabilities").
+    const capabilities = result.container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="What this agent can do. Markdown is rendered on the agent Overview."]',
+    )!;
+    expect(capabilities).toBeTruthy();
+    expect(capabilities.value).toBe("Ships React UI.");
+
+    await act(async () => setTextareaValue(capabilities, "Ships React UI and PWA shells."));
+    await flushReact();
+    const save = [...result.container.querySelectorAll("button")].find(button => button.textContent?.trim() === "Save")!;
+    await act(async () => save.click());
+    expect(result.onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ capabilities: "Ships React UI and PWA shells." }),
+    );
+
+    await act(async () => setTextareaValue(capabilities, "   "));
+    await flushReact();
+    await act(async () => save.click());
+    expect(result.onSave).toHaveBeenLastCalledWith(expect.objectContaining({ capabilities: null }));
+  });
+
+  it("leaves the other Identity fields untouched when only the role changes", async () => {
+    const result = await renderForm([], { title: "Frontend Lead", capabilities: "Ships React UI." });
+    roots.push(result.root);
+    expect(result.container.querySelector<HTMLInputElement>('input[placeholder="Agent name"]')!.value).toBe("Cody");
+    expect(result.container.querySelector<HTMLInputElement>('input[placeholder="e.g. VP of Engineering"]')!.value)
+      .toBe("Frontend Lead");
+
+    const role = result.container.querySelector<HTMLSelectElement>('select[aria-label="Role"]')!;
+    await act(async () => setSelectValue(role, "qa"));
+    await flushReact();
+    const save = [...result.container.querySelectorAll("button")].find(button => button.textContent?.trim() === "Save")!;
+    await act(async () => save.click());
+    const patch = result.onSave.mock.calls[0][0];
+    expect(patch.role).toBe("qa");
+    expect(patch).not.toHaveProperty("capabilities");
+    expect(patch).not.toHaveProperty("name");
+    expect(patch).not.toHaveProperty("title");
   });
 });
 

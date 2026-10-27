@@ -19,7 +19,7 @@ import type {
   EnvSecretRefBinding,
   Environment,
 } from "@paperclipai/shared";
-import { AGENT_DEFAULT_MAX_CONCURRENT_RUNS, supportedEnvironmentDriversForAdapter, isValidBrowserCode, ADAPTER_AUTH_MISSING_CHECK_CODE } from "@paperclipai/shared";
+import { AGENT_DEFAULT_MAX_CONCURRENT_RUNS, AGENT_ROLES, supportedEnvironmentDriversForAdapter, isValidBrowserCode, ADAPTER_AUTH_MISSING_CHECK_CODE } from "@paperclipai/shared";
 import type { AdapterModel } from "../api/agents";
 import { agentsApi } from "../api/agents";
 import { ApiError } from "../api/client";
@@ -70,6 +70,7 @@ import {
   DraftNumberInput,
   help,
   adapterLabels,
+  roleLabels,
 } from "./agent-config-primitives";
 import { defaultCreateValues } from "./agent-config-defaults";
 import { getUIAdapter } from "../adapters";
@@ -1492,6 +1493,20 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
                 placeholder="e.g. VP of Engineering"
               />
             </Field>
+            <Field label="Role" hint={help.role}>
+              <select
+                aria-label="Role"
+                className={inputClass}
+                value={eff("identity", "role", props.agent.role)}
+                onChange={(event) => mark("identity", "role", event.target.value)}
+              >
+                {AGENT_ROLES.map((role) => (
+                  <option key={role} value={role}>
+                    {roleLabels[role] ?? role}
+                  </option>
+                ))}
+              </select>
+            </Field>
             <Field label="Reports to" hint={help.reportsTo}>
               <ReportsToPicker
                 agents={companyAgents}
@@ -1499,6 +1514,13 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
                 onChange={(id) => mark("identity", "reportsTo", id)}
                 excludeAgentIds={[props.agent.id]}
                 chooseLabel="Choose manager…"
+              />
+            </Field>
+            <Field label="Capabilities" hint={help.capabilities}>
+              <MarkdownEditor
+                value={eff<string | null>("identity", "capabilities", props.agent.capabilities) ?? ""}
+                onChange={(v) => mark("identity", "capabilities", v.trim() ? v : null)}
+                placeholder="What this agent can do. Markdown is rendered on the agent Overview."
               />
             </Field>
             {isLocal && !props.hidePromptTemplate && (
@@ -1568,6 +1590,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
             <Field label="Environment override">
               <div className="space-y-2">
                 <select
+                  aria-label="Environment override"
                   className={inputClass}
                   value={currentDefaultEnvironmentId}
                   onChange={(event) => {
