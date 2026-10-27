@@ -4,6 +4,7 @@ import { DELIVERY_QUEUES, notifyDeliveryWork } from "./delivery-work-notificatio
 export async function notifyToolReviewChange(transaction: object, companyId: string) {
   await notifyDeliveryWork(transaction, DELIVERY_QUEUES.toolReviewExpiry, companyId);
   await notifyDeliveryWork(transaction, DELIVERY_QUEUES.toolReviewRecovery, companyId);
+  await notifyDeliveryWork(transaction, DELIVERY_QUEUES.toolReviewInterruption, companyId);
 }
 
 export function writeToolReviewChange<T>(db: Db, companyId: string, write: (transaction: Db) => Promise<T>): Promise<T> {
