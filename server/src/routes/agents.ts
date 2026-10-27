@@ -5588,7 +5588,7 @@ export function agentRoutes(
     if (existing.runtimeConfig.aiConnection && requestedRuntimeConfig && !requestedRuntimeConfig.aiConnection
       && !(existing.lifecycleState === "paused" && existing.pauseReason === "setup")) {
       const existingBinding = aiRuntimeConnectionBindingSchema.safeParse(existing.runtimeConfig.aiConnection).data;
-      if (existingBinding && agentHarnessType(existing.adapterType, normalizePaperclipRunnerAdapterConfig(existing.adapterType, existing.adapterConfig as Record<string,unknown>)) === agentHarnessType(requestedAdapterType, nextAiConfig)
+      if (existingBinding && agentHarnessType(existing.adapterType, existing.adapterConfig) === agentHarnessType(requestedAdapterType, nextAiConfig)
         && (existingBinding.mode === "router" || isAiConnectionCompatible(existingBinding,
           requestedAdapterType, nextAiConfig.model, nextAiConfig.provider, nextAiConfig.acpxAgent))) {
         requestedRuntimeConfig.aiConnection = existingBinding;
