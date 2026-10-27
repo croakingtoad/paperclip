@@ -1,0 +1,102 @@
+name: Daily Upstream Sync
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # 2:00 AM UTC daily
+  workflow_dispatch:    # Allow manual trigger
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    name: Sync upstream master and rebase feature branches
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "Paperclip Bot"
+          git config user.email "bot@paperclipai.local"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/paperclipai/paperclip.git || true
+          git remote set-url upstream https://github.com/paperclipai/paperclip.git
+
+      - name: Fetch upstream master
+        run: git fetch upstream master
+
+      - name: Check if master is behind upstream
+        id: check
+        run: |
+          git fetch upstream master
+          BEHIND=$(git rev-list --left-right --count master...upstream/master | awk '{print $2}')
+          echo "commits_behind=$BEHIND" >> $GITHUB_OUTPUT
+          if [ "$BEHIND" -gt 0 ]; then
+            echo "status=behind" >> $GITHUB_OUTPUT
+          else
+            echo "status=current" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Merge upstream master into fork
+        if: steps.check.outputs.status == 'behind'
+        run: |
+          git checkout master
+          git merge upstream/master --no-edit || {
+            echo "Merge conflicts detected. Aborting merge."
+            git merge --abort
+            exit 1
+          }
+          git push origin master
+
+      - name: Rebase loc-645/fix-harness-connection-sync
+        if: steps.check.outputs.status == 'behind'
+        continue-on-error: true
+        run: |
+          git checkout loc-645/fix-harness-connection-sync 2>/dev/null || {
+            echo "Branch loc-645/fix-harness-connection-sync does not exist. Skipping."
+            exit 0
+          }
+          git rebase master || {
+            echo "Rebase conflicts in loc-645. Aborting."
+            git rebase --abort
+            exit 1
+          }
+          git push origin loc-645/fix-harness-connection-sync -f
+
+      - name: Rebase loc-687/preserve-harness-aiconnection
+        if: steps.check.outputs.status == 'behind'
+        continue-on-error: true
+        run: |
+          git checkout loc-687/preserve-harness-aiconnection 2>/dev/null || {
+            echo "Branch loc-687/preserve-harness-aiconnection does not exist. Skipping."
+            exit 0
+          }
+          git rebase master || {
+            echo "Rebase conflicts in loc-687. Aborting."
+            git rebase --abort
+            exit 1
+          }
+          git push origin loc-687/preserve-harness-aiconnection -f
+
+      - name: Report success
+        if: success() && steps.check.outputs.status == 'behind'
+        run: |
+          echo "✅ Daily sync completed successfully"
+          echo "- Master merged with upstream"
+          echo "- Feature branches rebased on master"
+
+      - name: Report no changes
+        if: steps.check.outputs.status == 'current'
+        run: echo "ℹ️ Master already current with upstream. No sync needed."
+
+      - name: Report failure
+        if: failure()
+        run: |
+          echo "❌ Daily sync encountered conflicts or errors"
+          echo "Manual review required. Check the job logs above for details."
+          exit 1
