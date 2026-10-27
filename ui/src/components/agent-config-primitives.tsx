@@ -298,12 +298,14 @@ export function DraftTextarea({
   immediate,
   placeholder,
   minRows,
+  ariaLabel,
 }: {
   value: string;
   onCommit: (v: string) => void;
   immediate?: boolean;
   placeholder?: string;
   minRows?: number;
+  ariaLabel?: string;
 }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
@@ -325,6 +327,7 @@ export function DraftTextarea({
   return (
     <textarea
       ref={textareaRef}
+      aria-label={ariaLabel}
       className="w-full rounded-md border border-border px-2.5 py-1.5 bg-transparent outline-none text-sm font-mono placeholder:text-muted-foreground/40 resize-none overflow-hidden"
       placeholder={placeholder}
       value={draft}
