@@ -444,17 +444,17 @@ describe("ACPX installation integrity", () => {
     const dependencyFixtures = [
       {
         name: "@agentclientprotocol/sdk",
-        version: "1.4.0",
+        version: "2.1.0",
         directory: join(dependencyRoot, "agentclient-sdk"),
       },
       {
         name: "@anthropic-ai/claude-agent-sdk",
-        version: "0.3.280",
+        version: "0.3.312",
         directory: join(dependencyRoot, "claude-agent-sdk"),
       },
       {
         name: "zod",
-        version: "4.4.3",
+        version: "4.6.7",
         directory: join(dependencyRoot, "zod"),
       },
     ] as const;
@@ -472,13 +472,13 @@ describe("ACPX installation integrity", () => {
         fixture.serverPackageJsonPath,
         JSON.stringify({
           name: "@agentclientprotocol/claude-agent-acp",
-          version: "0.73.0",
+          version: "0.99.0",
           type: "module",
           bin: "bin/server.js",
           dependencies: {
-            "@agentclientprotocol/sdk": "1.4.0",
-            "@anthropic-ai/claude-agent-sdk": "0.3.257",
-            zod: "^4.0.0",
+            "@agentclientprotocol/sdk": "2.1.0",
+            "@anthropic-ai/claude-agent-sdk": "0.3.312",
+            zod: "4.6.7",
           },
         }),
       ),
@@ -543,13 +543,13 @@ describe("ACPX installation integrity", () => {
     await writeFile(
       fixture.serverPackageJsonPath,
       JSON.stringify({
-        version: "0.73.0",
+        version: "0.99.0",
         type: "module",
         bin: "bin/server.js",
         dependencies: {
-          "@agentclientprotocol/sdk": "1.4.0",
-          "@anthropic-ai/claude-agent-sdk": "0.3.257",
-          zod: "^4.0.0",
+          "@agentclientprotocol/sdk": "2.1.0",
+          "@anthropic-ai/claude-agent-sdk": "0.3.312",
+          zod: "4.6.7",
         },
       }),
     );

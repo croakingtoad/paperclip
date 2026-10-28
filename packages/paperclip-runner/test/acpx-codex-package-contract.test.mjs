@@ -28,7 +28,7 @@ const codexPatch = await readFile(
 );
 const claudePatch = await readFile(
   new URL(
-    "../../../patches/@agentclientprotocol__claude-agent-acp@0.73.0.patch",
+    "../../../patches/@agentclientprotocol__claude-agent-acp@0.99.0.patch",
     import.meta.url,
   ),
   "utf8",
@@ -60,7 +60,7 @@ test("the runner pins every qualified ACPX production dependency", () => {
   assert.equal(runnerPackage.dependencies["@openai/codex"], "0.156.0");
   assert.equal(runnerPackage.dependencies["@anthropic-ai/claude-agent-sdk"], undefined);
   assert.equal(rootPackage.pnpm.overrides["@agentclientprotocol/codex-acp@1.6.2>@openai/codex"], runnerPackage.dependencies["@openai/codex"]);
-  assert.equal(rootPackage.pnpm.overrides["@agentclientprotocol/claude-agent-acp@0.73.0>@anthropic-ai/claude-agent-sdk"], "0.3.280");
+  assert.equal(rootPackage.pnpm.overrides["@agentclientprotocol/claude-agent-acp@0.99.0>@anthropic-ai/claude-agent-sdk"], "0.3.312");
   assert.equal(runnerPackage.optionalDependencies, undefined);
   assert.equal(runnerPackage.dependencies.node, undefined);
   assert.equal(runnerPackage.dependencies.acpx, "0.13.1");
@@ -70,7 +70,7 @@ test("the runner pins every qualified ACPX production dependency", () => {
   );
   assert.equal(
     runnerPackage.dependencies["@agentclientprotocol/claude-agent-acp"],
-    "0.73.0",
+    "0.99.0",
   );
 });
 
@@ -117,9 +117,9 @@ test("old and new pnpm configuration both apply the exact runtime patches", () =
   );
   assert.equal(
     rootPackage.pnpm.patchedDependencies[
-      "@agentclientprotocol/claude-agent-acp@0.73.0"
+      "@agentclientprotocol/claude-agent-acp@0.99.0"
     ],
-    "patches/@agentclientprotocol__claude-agent-acp@0.73.0.patch",
+    "patches/@agentclientprotocol__claude-agent-acp@0.99.0.patch",
   );
   assert.equal(
     rootPackage.pnpm.patchedDependencies[
