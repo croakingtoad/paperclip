@@ -632,7 +632,7 @@ A board comment can be an interrupt, an ownership change, both, or neither. Pape
 
 An interrupt stops the current live execution path for the issue. It does not, by itself, select the next owner. If an active run is interrupted by the board, the run may still terminate with the underlying `cancelled` status, but the issue activity and wake context should make the operator intent visible as an interruption rather than an unexplained runtime failure.
 
-For legacy runners, **Interrupt** on a queued message stops the active run and explicitly continues the pending queue after execution cleanup. It validates the queue revision and target run, then dispatches the requested queue’s current message bodies in their saved order. Other actors’ queues cannot consume that interrupt. The persisted interrupt intent is retried by the scheduler after a promotion error or server restart until that queue is dispatched or discarded. Edits and discards remain authoritative until dispatch; deleting the final message must not create an empty continuation. Pending messages remain visible after a run stops. Cancelling only the run preserves the queue for a later explicit wake; pausing the task retains its separate queue-cancellation behavior. Native same-turn steering keeps its separate acknowledgement protocol. After an acknowledged native Stop, a follow-up saved before the stopped run finished remains pending. It cannot authorize an automatic new turn. A later user message can authorize one continuation that retains the earlier undelivered input. Closing the stopped execution coordinator also wakes the existing accounting worker in the same transaction. Complete usage can settle once; missing or partial receipts retain their accounting hold. Legacy Codex uses Ctrl-C to stop its tool sessions and cannot retry a missing-session fallback after the provider has confirmed that the session started.
+For legacy runners, **Interrupt** on a queued message stops the active run and explicitly continues the pending queue after execution cleanup. It validates the queue revision and target run, then dispatches the requested queue’s current message bodies in their saved order. Other actors’ queues cannot consume that interrupt. The persisted interrupt intent is retried by the scheduler after a promotion error or server restart until that queue is dispatched or discarded. Edits and discards remain authoritative until dispatch; deleting the final message must not create an empty continuation. Pending messages remain visible after a run stops. Cancelling only the run preserves the queue for a later explicit wake; pausing the task retains its separate queue-cancellation behavior. Native same-turn steering keeps its separate acknowledgement protocol. After an acknowledged native Stop, a follow-up saved before the stopped run finished remains pending. It cannot authorize an automatic new turn. A later user message can authorize one continuation that retains the earlier undelivered input. A stopped queue also offers **Send**, which records fresh board intent for the existing messages without copying them or changing their authors. Native Send intent must be later than the stopped execution; it preserves all provider-stop, workspace, approval, pause and budget gates. It does not interrupt a live native turn. Closing the stopped execution coordinator also wakes the existing accounting worker in the same transaction. Complete usage can settle once; missing or partial receipts retain their accounting hold. Legacy Codex uses Ctrl-C to stop its tool sessions and cannot retry a missing-session fallback after the provider has confirmed that the session started.
 
 An ownership change selects who owns the issue after the comment is committed:
 
@@ -1824,6 +1824,14 @@ comments already delivered to the failed run. A plain operator Stop still
 requires a new user action. The successor guard is scoped to the same agent so
 another agent's review participation keeps its independent recovery path.
 
+Agent Chat `/new` can clear provider context without launching a provider. It
+cannot certify that an older native provider stopped. Native execution recovery
+records remain eligible across that boundary, so the next message must still
+pass the existing process, controller, workspace and lease cleanup checks. A
+verified stop can retire the hold for new input; prior outcomes stay recorded.
+Send also checks the native predecessor when no recovery record exists. A later
+context-reset record cannot hide that predecessor or its stop requirements.
+
 An explicit queued-message Interrupt also grants one scoped cleanup retry for
 the stopped run. Old ephemeral leases whose cleanup predates provider stop
 receipts are rechecked through the recorded provider teardown path. Retained
@@ -2163,13 +2171,33 @@ message posted after the run finished can authorize a fresh turn through the
 same continuation checks as a new message. A message from before the Stop cannot
 authorize that continuation by itself. Previously delivered messages stay excluded.
 
+The Send click also covers saved question answers and confirmation responses.
+Admission checks the last native Stop's process, workspace and cleanup receipts
+even when no recovery action exists. Its continuation authority is recorded on
+the exact queue receipt and verified again at dispatch. A deferred response keeps
+its messages and controls visible and explains the current wait. Historical
+recovery actions cannot stand in for the newest failed or cancelled native run:
+Send checks that run's controller, process, lease and cleanup proofs as well.
+
+A live plan Interrupt binds the click to its target run and the exact operator
+cancellation receipt. Its click may precede that run's stop time, but cannot
+bypass process or workspace cleanup. Other Send clicks must follow the Stop.
+Only a persisted Agent Chat `/new` authored by the requesting user retains the
+conversation-reset exception. Ordinary follow-ups still wait for an accepted
+result to finish committing, even after workspace export recovery clears its
+execution blocker. Committed successful results no longer create continuation
+waits from recovered-export history. Applied conversation resets retire older
+non-workspace holds; active workspace holds remain authoritative across the
+boundary. Workspace recovery holds still block the reset. Queue authorization
+is read again at dispatch for both cancelled and failed native predecessors.
+
 The active session advertises steering only when its driver supports it. A
 transport method that rejects steering does not grant that capability. The
 queued-message controller remains mounted across an empty queue, preserving
 pending delivery and inline errors. Steer immediately moves the selected message
 into the conversation; Interrupt immediately moves all submitted queued messages.
 Stale queue polls do not restore those rows while delivery is pending or accepted.
-Rejected delivery restores the latest queue and shows an inline error without a
+Rejected or still-deferred delivery restores the latest queue and shows an inline error without a
 toast. The provider acknowledgement remains the authoritative delivery receipt;
 optimistic display never grants permission or records successful delivery. A preparing
 Paperclip Runner retains the Steer label while steering is unavailable; the
