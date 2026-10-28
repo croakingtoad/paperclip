@@ -1809,3 +1809,16 @@ notifications and startup; those saves select zero rows and preserve the deadlin
 The [report notification ledger](2026-10-25-voice-call-report-sleep-audit.md#configuration-scope-review-repair-october-28)
 records 303 passing cases, types/build, the narrower contract and limits. Fresh
 exact-head review and CI are required after the repair.
+
+
+## Slice 26: Teams unused-consent expiry
+
+The Teams owner now selects existing unused-consent phases and their saved expiry
+through scoped deadline work. Production maintenance retains only abandoned
+attempts; these are the next distinct reason. No new table or Cloud alarm policy
+is included. The [audit](2026-10-25-teams-consent-expiry-sleep-audit.md) records
+222 unique selected passing cases, workspace types/build, and initial fixture
+failures. Publication and fresh remote checks/review remain required.
+Parent #17586 Actions/security/Greptile pass at 250fca6cff; Paperclip Review is
+still running. The original full inventory, older E2E failure, deletion-policy
+finding and master reconciliation remain outstanding. No stack PR is merged.
