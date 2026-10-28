@@ -1897,12 +1897,25 @@ limits its own attempt; it must not terminate the remote owner while another
 controller is starting or classifying runs. Lease expiry still shuts down the
 provider, and exact identity, authentication, Stop and revocation checks remain
 required before any recovery or new execution.
+A remote restart claim with a persisted admitted Runner artifact can reconnect
+without the previous controller's launch binary, provider pack or local pack
+receipt. The existing sandbox marker, process identity and authenticated PRP
+checkpoint still establish the original execution. Adoption uses that admitted
+artifact identity and does not stage or launch provider assets. Fresh launches
+and recovery without persisted admission retain their release and pack checks.
 Native ACPX semantic tool calls wait on their durable PRP invocation across a
 controller outage. Their provider-side MCP bridge does not impose a separate
 request deadline that could make the provider retry an already queued write.
 Runner lease expiry, turn cancellation and bridge closure still end those waits.
 Ordinary bridge callers retain their request deadline. Repeating the same call
 identity returns its one retained result; it does not execute the operation again.
+Completed `update_case`, `create_workflow` and `update_workflow` results recover
+through their existing tool adapters, request conversion and API receipt keys.
+Recovery repeats current feature, task and access checks but does not dispatch an
+HTTP mutation or create another receipt. Missing, changed, pending or unknown
+outcomes remain unanswered for authoritative reconciliation; a stopped run or
+revoked authority cannot recover a result.
+
 The native Claude sidecar also sets its HTTP MCP client budget to one hour,
 matching the Runner connection lease budget. This prevents Claude's default
 60-second HTTP deadline from aborting an otherwise pending durable request.
@@ -2431,3 +2444,37 @@ controller lease, result, successor or retry remains, and a separate source-boun
 workspace hold records that uncertain actions cannot replay. The worker keeps
 that hold and all saved work. It does not change the task or start a provider.
 The same bounded reconciliation pass handles historical actions after restart.
+
+Checkpoint encryption resolves the local master key once per checkpoint load or
+changed-record write, then encrypts or decrypts the batch in memory. It does not
+retain a process-wide key cache. Each later operation reads the configured key
+again, and a recovery read never creates a missing key. Ciphertext format and
+company/run/part binding stay the same. Migration 0391 follows current master and
+remains idempotent for test databases that already installed an earlier preview.
+
+Expired remote recovery considers the complete active-run inventory supplied by
+the orphan sweep. It does not truncate that inventory at 100 rows: blocked issue
+locks can retain expired owners across sweeps, and must not starve later valid
+runners. This remains one scoped query and performs no checkpoint query when
+that inventory is empty. It does not scan retained completed history.
+
+Fresh execution claims start their lease from the database wall clock in the
+final claim update, after run-row locks and replacement-history reads. Lock
+contention cannot consume the new remote controller's 60-second lease before
+renewal begins at commit. Recovery claims use the same clock rule.
+
+Checkpoint-pool shutdown fences lazy creation even if the owner has never
+requested that pool. Later checkpoint access fails before allocating a client.
+An already-created pool remains cached and ended; unrelated owners and database
+test doubles keep their existing behavior. Closing an unused pool makes no SQL.
+
+
+Ordinary remote warm admission also restores external controller state before
+reading the durable identity or checking reuse. It uses the retained owner's
+last run and issue, or the validated saved native-session identity after owner
+loss. The marker may describe the first turn, so it cannot identify every later
+warm checkpoint. Legacy file-backed roots retain their existing checks. A
+restored checkpoint must match the normalized session before writing its local
+projection. This adds a scoped checkpoint read and local reconstruction only
+when warm admission encounters an external marker or an older projection; it
+adds no streaming checkpoint writes or recurring idle work.
