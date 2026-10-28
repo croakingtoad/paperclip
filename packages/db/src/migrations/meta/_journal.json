@@ -2731,6 +2731,13 @@
       "when": 1793142971791,
       "tag": "0391_third_roulette",
       "breakpoints": true
+    },
+    {
+      "idx": 392,
+      "version": "7",
+      "when": 1793143372644,
+      "tag": "0392_small_frightful_four",
+      "breakpoints": true
     }
   ]
 }
