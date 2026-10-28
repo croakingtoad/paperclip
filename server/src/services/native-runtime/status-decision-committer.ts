@@ -1,3 +1,4 @@
+import { notifyChatRunMilestones } from "../chat-run-milestone-notifications.js";
 import { scheduledIssueMonitorWait } from "../issue-monitors.js";
 import { onboardingFirstTaskCompletionAllowed } from "../onboarding-first-task-admission.js";
 import { hasPublishedGitHubReview, readInheritedGitHubReviewWait } from "../chat-channels/github/review-wait.js";
@@ -127,6 +128,7 @@ export async function dispatchPendingNativeStatusEffects(input: {
         targetId: effect.targetId,
       });
     }
+    await notifyChatRunMilestones(tx, input);
     await tx
       .update(statusDecisionEffects)
       .set({
@@ -1973,6 +1975,7 @@ export async function commitNativeStatusDecision(input: {
       await recordCoordinatorDecision(decisionRow.id);
       return { decision: decisionRow, issue, replayed: true };
     }
+    await notifyChatRunMilestones(tx, input);
     if (!decisionRow) {
       const latestDecisionVersion = await tx
         .select({
