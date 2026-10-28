@@ -17,12 +17,8 @@ Do not mark an item done from a timer removal or a green check alone.
 | 03 | Run and task recovery | Orphan runs and active leases; shutdown workspace settlement; scheduled retries; queued runs; stranded assignments; resolved dependencies; task watchdogs; silent-run monitoring; stale locks | Pending |
 | 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Approval retention [#17497](https://github.com/paperclipai/paperclip/pull/17497) and archive delivery [#17475](https://github.com/paperclipai/paperclip/pull/17475) merged; other source retention pending |
 | 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478) merged; expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479) merged; effects [#17482](https://github.com/paperclipai/paperclip/pull/17482) merged; targets [#17486](https://github.com/paperclipai/paperclip/pull/17486) merged |
-
-
-
 | 06 | Tool connection health | Configuration/use activation and defined proactive health deadlines | Pending |
 | 07 | Secret proposals, tool reviews, gateway tokens | Separate expiry/scrub/recovery owners | Slices 02–07 merged: [secret proposals](https://github.com/paperclipai/paperclip/pull/17446), [credentials](https://github.com/paperclipai/paperclip/pull/17450), [review expiry](https://github.com/paperclipai/paperclip/pull/17453), [approved recovery](https://github.com/paperclipai/paperclip/pull/17454), [interrupted claims](https://github.com/paperclipai/paperclip/pull/17458), [projection](https://github.com/paperclipai/paperclip/pull/17468) |
-
 | 08 | GitHub connection events and continuity | Event discovery/replay and credential continuity separately | Pending |
 | 09 | Merged-PR confirmations | Candidate writes, webhook activation where supported, outstanding-candidate fallback | Pending |
 | 10 | External-object refresh | Configuration changes, refresh deadlines, source events | Pending |
@@ -41,7 +37,8 @@ The first PR targets master. Each following PR targets its predecessor branch so
 its diff shows only its own reason. Parent changes must be propagated before
 final verification. Record the exact checked head and base for every PR. All PRs
 must finish with passing checks, fresh 5/5 Greptile review, and no unresolved
-findings. This request does not authorize merging the stack.
+findings. The later user authorization permits merges after current-head Greptile
+5/5, a passing Ponytail review when present, and passing CI, in dependency order.
 
 Reuse the delivery coordinator, transaction notifications, and shared scheduler.
 Existing durable rows own work; no table per loop. Keep domain/provider behavior
@@ -1083,3 +1080,55 @@ accounting files. Its entire runtime and acceptance sources match the tested/
 reviewed `a34dc50de3` tree (136 cases, server types/build); migration metadata is
 unchanged. No local checks were repeated on unchanged source. Fresh final-head
 CI/reviews are required against master; all remaining checklist duties persist.
+
+## Join request retention implementation
+
+Terminal workspace pagination is [#17505](https://github.com/paperclipai/paperclip/pull/17505),
+head `28a197cdfd`, stacked on #17497. It has fresh 5/5 review without unresolved
+findings. The full CI matrix is running. Workspace typecheck/build and all 87
+selected service/worker tests passed locally.
+
+Join retention is implemented on `codex/sleep-15-join-retention`, based on #17505.
+The worker preserves pending request/invite/company eligibility, manual controls,
+transaction ownership, microsecond paging, and bounded recovery. All supported
+writers are audited; approved-only API-key consumption is deliberately exempt.
+See [join retention](../idle-join-request-retention.md). Seventeen new real-DB
+lifecycle cases and 139 consumers pass (156 total). Initial fixture and command
+failures are recorded in that document. Index generation, apply, replay, safety,
+numbering, and an actual-query plan with 40,000 resolved requests pass. Workspace
+typecheck/build and remote publication/CI/review remain in progress. No slice is
+claimed ready based only on local tests, and no merge is authorized.
+
+After join retention, migrate the remaining attention source owners separately:
+decisions, interactions, recovery actions, reviews, and other source kinds. Keep
+the full original server inventory and later aggregate-tick retirement in scope.
+
+
+Slice 15 review repair: approval and join retention share the bounded archive
+sweep; owners retain eligibility and source-row locks. SQL deadlines round up
+from database precision. Unseen join controls materialize state atomically in
+the existing retention boundary. Five real regressions failed then passed. The
+initial timing-only concurrency test failed to detect a missing lock; it now
+observes the actual database wait, passes normally and rejects lock removal.
+Archive-first committed activity remains archived until explicit revival.
+
+All 340 cases across nine complete suites (31 approval/22 join worker cases),
+server types/build, migration checks and schema drift pass at `405c7dcdef`.
+All six isolated database fixtures pass actual migration apply/replay. Index 0393
+is generated after 391 unchanged parent entries; five snapshots remain. Parent
+`0b0e844b77` adds only four Runner E2E accounting files and ledger changes; runtime
+and acceptance sources are unchanged. Fresh publication checks/reviews required.
+
+
+Slice 15 final master integration: #17505 merged as `d23dd19750` after both
+final-head 5/5 reviews and all 58 accepted checks. Join retention now targets
+master and integrates that landed parent without changing the tested source tree.
+The shared retention scan saves a finite upper tuple so continuing arrivals cannot
+starve failed rows; both real arrival regressions failed then passed. All 55 worker
+cases pass. Eight consumer suites passed 311 cases; the ninth attention suite had
+a cleanup-hook timeout and then passed all 31 after disposable-fixture vacuuming.
+The unchanged expiry suite passes twenty local cases after a separate CI deadline
+assertion failure; neither passing rerun is presented as a proven root cause.
+Server types/build pass. See the join-retention document for the full audit.
+Fresh exact-head reviews and CI remain required. All original duties remain open
+until their own accepted merge, including native-harness backup expiration.
