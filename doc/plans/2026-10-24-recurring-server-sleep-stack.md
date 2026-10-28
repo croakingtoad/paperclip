@@ -1176,6 +1176,26 @@ and #17497 were each rerun once to clear stale cancelled contexts. The #17490
 retry has a new E2E shard 3 failure under investigation; do not call it green or
 rerun again without a repair. #17497's retry was still running at this observation.
 
+### Plugin scheduling implementation, 2026-10-24
+
+The next slice replaces the plugin scheduler's private 30-second query loop with
+shared deadlines and transaction-aware producer wakes. It uses existing job/run
+rows, preserves overdue schedules, handles empty manifest sync, and tracks calls
+through durable settlement and shutdown. See [the implementation contract](../idle-plugin-jobs.md)
+and [producer audit](2026-10-24-plugin-job-sleep-audit.md).
+
+The baseline empty-instance regression failed before the migration. The first
+expanded local run passed 59 tests across plugin scheduling, warm standby, the
+shared coordinator, and decision expiry. The consumer run exposed an incomplete
+loader mock after empty-manifest synchronization became mandatory; that fixture
+was corrected; all 14 loader recovery cases passed. Workspace typechecks and the
+production build passed. Final server typecheck and build also passed after the
+lifecycle wiring edits. Remote review/checks remain open.
+
+Separate stack gates remain: #17490 E2E cleanup hit a cancellation lock timeout;
+#17510 has a security finding about unscoped approval queue scans plus CI failures.
+Neither PR is claimed green. Approval retention #17497 is green at `2c5babcabc`.
+The complete original inventory remains in scope; this slice does not finish it.
 
 Slice 16 security review reproduced cross-company work amplification from normal
 producer writes. The repair carries company hints through all supported producers
@@ -1190,6 +1210,29 @@ Plugin scheduling is published as #17518 at 8b4f551dc2. Its Actions checks passe
 but review found retained completion writes missing from shutdown and a stale
 deadline update race. Repair those and preserve independent job progress when
 one completion write fails before treating the slice as ready.
+
+
+Plugin review repair: real PostgreSQL cases reproduced lost shutdown settlement,
+independent-job starvation after a completion write error, and restoration of an
+old deadline by a concurrent registry update. Stop now flushes retained results
+and reports remaining errors; refresh preserves independent dispatch; registry
+updates take the job lock. All 62 focused lifecycle/consumer cases and server
+typechecking pass. #17510 at 400f4c0fc8 cleared the security gate and previous CI
+failures, but environment-cleanup pagination has a 32-versus-33 assertion race
+in server shard 1. Diagnose and repair it before accepting the stack.
+
+
+Plugin round-two review repair restores a 30-second minimum between requested
+full refreshes without adding idle polling. A burst regression failed at 16
+reads before repair and passes at at most one afterward. Failed plugin stop
+no longer skips application/worker teardown; retained settlement is retried once
+after cleanup while the pool is open, with persistent errors still reported.
+The final 48 shutdown/plugin cases and earlier 75-case consumer selection pass
+(76 unique cases), with server types/build passing. Fresh remote gates remain.
+Approval #17510 has passing latest-head CI and Greptile 5/5 at 0c7109c103, but
+Paperclip review identified persistent-failure backoff and duplicated PR matching
+that still require repair. Tool health remains the next new migration after
+these owning-PR repairs.
 
 
 Approval queue follow-up: persistent projection failure reproduced 120 failed
@@ -1223,3 +1266,28 @@ cases passed on three fresh fixtures, and the final added guard passes all 56
 cases on those migrated fixtures. Server types/build pass at `7948136ef8`.
 The earlier cleanup-expectation failure and 522-case integration evidence retain
 their own revisions. Fresh exact-head reviews and CI are the remaining merge gate.
+
+Slice 17 current review repair: a retained plugin completion can no longer wait
+indefinitely for a PostgreSQL statement/row lock. The transaction-local timeout
+preserves the saved result for retry and allows existing shutdown cleanup to
+continue; the provider is not called again. A real lock regression failed then
+passed. All 34 scheduler cases and 247 cases in eleven complete lifecycle and
+existing-worker suites pass at `36be0bd733`, plus server types/build. This is not
+a guarantee about every network or shutdown operation. Final parent integration,
+fresh remote review and all CI gates remain required.
+
+
+Plugin slice 17 integrates final seeding parent `51668b8240`. Its original
+seventeen-file boundary is preserved, and every plugin/runtime/shutdown source
+is unchanged from the 247-case proof. All 63 cases across complete plugin,
+seeding and scoped-deadline suites now pass at `56ce7c1d2a`, plus server
+types/build. Hold its final publication for the parent's accepted merge, then
+reconcile the landed master parent and require fresh exact-head review/CI.
+
+
+Approval queue seeding #17510 merged as `4e27a82a42` after final-head 5/5
+Greptile/Ponytail and all 58 accepted checks. Plugin scheduling now targets master
+and integrates that accepted parent. Normal ancestry reconciliation preserves
+its entire verified tree (`df78ca3b5e`) byte for byte; only publication docs change
+subsequently. All original remaining duties remain in scope, beyond the 65
+published numbered slices, including native backups and remaining aggregate owners.
