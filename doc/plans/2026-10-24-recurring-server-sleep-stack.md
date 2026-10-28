@@ -1132,3 +1132,94 @@ assertion failure; neither passing rerun is presented as a proven root cause.
 Server types/build pass. See the join-retention document for the full audit.
 Fresh exact-head reviews and CI remain required. All original duties remain open
 until their own accepted merge, including native-harness backup expiration.
+
+## Slice 16: approval PR-queue membership
+
+The source audit found automatic seeded-queue materialization hidden inside the
+attention retention scan. A PostgreSQL regression failed after approval exclusion:
+queue API readers saw no PR queue despite a pending linked approval and PR work
+product. This is a separate obligation from retention, not grounds to leave a
+new permanent scan or to put queue policy into retention.
+
+The new approval queue worker uses existing durable records and the queue service's
+normalized seed writer. It gets committed signals from all approval/link producers,
+issue/company visibility changes, work-product writes, and queue-rule changes.
+Missing membership is recovery debt; existing membership and disabled rules are
+quiet. Twenty real-database lifecycle cases and 115 existing consumer/startup
+tests pass, as do workspace typechecks and the production build. See
+[approval queue seeding](../idle-approval-queue-seeding.md). Fresh CI/review
+remain required before readiness. This slice is a correctness dependency of
+approval retention #17497; do not accept that migration as functionally complete
+without preserving queue population. Other source seeding remains to be migrated.
+
+#17505 now has all latest-head checks accepted at `28a197cdfdab7977eecf591df39612009d725e17`
+(Paperclip Review skipped), with Greptile 5/5. #17508 at
+`9c5c4fbf65628589b466ce5650e8969388213716` has Greptile 5/5 and no unresolved
+threads. Its unchanged login-cleanup consume test failed in CI; all 16 local
+login-cleanup tests pass. One justified retry of failed run 40139410144 was
+requested. Do not mark that PR green until the retry completes successfully.
+
+
+Slice 16 is [#17510](https://github.com/paperclipai/paperclip/pull/17510).
+Greptile identified a queue/item lock-order inversion. A real PostgreSQL test
+reproduced a deadlock; the common queue-before-item order repairs manual add/remove
+and seeding. The worker and queue route suites pass 27 cases after the fix, with
+server typecheck/build passing. Other selected consumers passed on the initial
+head (136 unique local cases including the new regression). Fresh-head checks are
+required; the initial head also hit an unchanged environment cleanup paging test.
+Embedded PostgreSQL is unsupported on this host, so its first local run skipped;
+this is not counted as a pass.
+
+#17508 now has all checks accepted at `9c5c4fbf65628589b466ce5650e8969388213716`
+after its single justified retry. The duplicate cancelled workflows for #17490
+and #17497 were each rerun once to clear stale cancelled contexts. The #17490
+retry has a new E2E shard 3 failure under investigation; do not call it green or
+rerun again without a repair. #17497's retry was still running at this observation.
+
+
+Slice 16 security review reproduced cross-company work amplification from normal
+producer writes. The repair carries company hints through all supported producers
+and maintains separate pending scopes. Startup recovery remains instance-wide.
+A generation comparison after the final awaited read preserves concurrent commits.
+All 169 affected cases and server typechecking pass. CI fixture repairs move cold
+route imports outside timed tests and replace random watchdog identifiers. The
+initial rerun had timeouts and a cleanup failure; the final selected run passes
+without relaxing timeouts. Fresh remote CI/review remains required.
+
+Plugin scheduling is published as #17518 at 8b4f551dc2. Its Actions checks passed,
+but review found retained completion writes missing from shutdown and a stale
+deadline update race. Repair those and preserve independent job progress when
+one completion write fails before treating the slice as ready.
+
+
+Approval queue follow-up: persistent projection failure reproduced 120 failed
+transactions in two simulated minutes. Per-scope exponential backoff now caps
+retries at one minute without discarding debt or letting repeated signals reset
+the budget. A coordinator regression proves SQL silence during backoff and real
+producer progress for another company. The candidate and seed writer share the
+PR-product predicate. All 124 affected worker/queue/startup/retention/attention
+cases pass, along with server types/build. One initial consumer command skipped
+six queue tests because its DB variable was missing; the corrected run executes
+and passes them. Fresh remote checks and review remain required after publication.
+
+
+Slice 16 current parent: approval seeding integrates published join retention
+`b41c51c70f`. Only the original 25 seeding paths differ from the tested parent;
+all other files match it. The worker shares the first-linked-issue policy, and
+generic writes preserve retention-plus-scoped-seeding signals while terminal
+approval outcomes retain tool-review signals. All 522 cases in fifteen complete
+suites, server types and production build pass at `4e725e2055`. An initial
+integration typecheck caught incorrect gateway company references; those are
+repaired with the existing session company. The final parent merge adds only
+two documents. Fresh final-head CI/reviews and the parent's merge remain required.
+
+
+Slice 16 now integrates landed join retention `8406047b4e` and targets master.
+Its own diff is still the original 25 seeding paths; all database metadata matches
+master. Continuing-arrival fairness, post-success backoff reset and outage backoff
+through an empty rollover have real failed-then-passing regressions. External
+seeding, queue and watchdog tests now migrate their own empty databases: all 55
+cases passed on three fresh fixtures, and the final added guard passes all 56
+cases on those migrated fixtures. Server types/build pass at `7948136ef8`.
+The earlier cleanup-expectation failure and 522-case integration evidence retain
+their own revisions. Fresh exact-head reviews and CI are the remaining merge gate.
