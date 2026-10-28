@@ -18,7 +18,7 @@ export const DELIVERY_QUEUES = {
   decisionContinuation: "decision-continuation",
 
   decisionArchiveDelivery: "decision-archive-delivery",
-
+  toolConnectionHealth: "tool-connection-health",
   toolReviewProjection: "tool-review-projection",
   toolReviewInterruption: "tool-review-interruption",
   toolReviewRecovery: "tool-review-recovery",
