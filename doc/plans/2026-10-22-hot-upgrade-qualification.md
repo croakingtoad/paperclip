@@ -1441,6 +1441,33 @@ are added; reconstruction is limited to warm admission with an external marker
 or an older local projection.
 
 
+### Delivery read deadlines below the queue bound
+
+Four cases reproduce a live-delivery freeze when a permission or decoration
+read never settles, for both old and negotiated clients, with only two retained
+items. The five-second pending-read deadline now closes the connection before
+overflow is necessary. Disposal clears queued items, prevents late results from
+being sent, and leaves unrelated connections responsive. Interest revisions
+cannot reset the pending read's original deadline. The underlying read is not
+cancelled by socket closure; at most the already-started read remains until its
+driver settles. That closed connection can launch no subsequent delivery work.
+
+After correction, all 28 delivery, unchanged workload-cost and WebSocket cases
+pass with server typecheck. Six new cases include the four stalled-read variants
+and settling/disposal before expiry; they confirm no timer remains when idle.
+The workload comparison preserves the existing viewer-interest authorization
+call counts. These unit counts do not measure final hosted SQL or CPU savings,
+and do not complete the active-agent/viewer performance matrix.
+
+
+The late-error regression also fails before correction: a rejected read after
+socket disposal could create a new congestion timer. Closed deliveries now
+ignore that rejection before any recovery work starts. The final combined
+delivery/cost/WebSocket/toast batch first has four loopback EPERM failures and
+31 passes; its permitted repeat passes all 35 cases. The prior 28-case result
+excluded the toast file. Both outcomes remain recorded, and no hosted result
+is inferred from these local fault tests.
+
 Master `e9e84bb8a1` then adds migration 0390. The fifth reconciliation generates
 checkpoint migration 0391 with the identical prior idempotent DDL, preserving
 every master SQL file and journal entry. The five snapshots are 0387–0391.
@@ -1448,6 +1475,66 @@ Migration checks, server typecheck and all 13 warm-admission/configuration
 variants pass after integration. Current-head CI and review remain required;
 prior source checks are not carried forward as a new-head pass.
 
+
+### Plugin recipient redaction and post-recovery application reads
+
+The new native live payload reproduced a registered-secret leak through plugin
+`agents.sessions.event` notifications. Browser-only redaction did not protect
+that separate recipient. Browser and plugin delivery now share the canonical
+structural, current-user and per-run registered-secret read pipeline. Plugin
+subscriptions use the existing bounded delivery queue, including its stalled
+read deadline and disposal rules. No redaction lookup is added to the producer
+or an uninterested native stream. Existing plugin company/run/session checks
+remain in their owner. Legacy chunks and final text are also redacted.
+
+The regression registers a synthetic run secret through the production registry
+and publishes native events through the real bus and host-service subscription.
+Database storage and the secret provider are scripted; the registry, recipient
+pipeline and worker notification are real. Native, legacy and final messages
+stay redacted; disposal suppresses late notification and later reads. The
+initial implementation dropped failed redactions. All 47 registry/plugin/delivery/WebSocket/toast
+cases pass, with server typecheck. Recipient redaction can add database reads
+for active plugin subscribers; final hosted plugin-viewer costs are unmeasured.
+
+A subsequent review reproduced a lost terminal notification when either the
+settings read or registered-secret resolution failed. Both regressions failed
+before the fix. Plugins now receive one content-free delivery error and their
+subscription is removed on any delivery failure. The same path handles backlog
+closure and the existing subscription timeout. This error ends notification
+delivery; it does not stop the agent or change the recorded run status. No
+retry, extra read or browser delivery behavior is added. All 50 cases in the
+six-file registry/plugin/delivery/WebSocket/toast lane pass, including both
+terminal failures, timeout, no subsequent reads, and existing late-disposal
+coverage. Server typecheck passes. Database storage and secret provider remain
+scripted in the plugin regression; hosted plugin-consumer recovery is unmeasured.
+
+Two UI regressions reproduce a run missed between the pre-resync refresh and
+the server's replacement-interest acknowledgement. Application queries now
+refresh after a matching recovery ACK. If a read was already in flight, one
+follow-up waits for it to settle; stale scopes and inactive queries cannot
+refresh. Initial and ordinary interest acknowledgements add no refresh. All
+174 live-provider/recovery/interest cases and UI typecheck pass, including
+stale/duplicate acknowledgements and disconnect, hidden, company, session and
+unmount races. Token gates pass. This introduces no recurring healthy polling.
+
+### Current Linux receipts and one expiry-worker diagnostic retry
+
+At server `8fbe62b41d`, Linux job 122535673837 passes all 938 native-executor
+cases. The warm external-checkpoint regression is included. Job 122535673326
+passes the native recovery lane (115 passes, five container-only skips),
+including the encrypted-restore session guard, fresh preparation (63.694 s),
+claim-lock contention (4.043 s), and 101-owner recovery (4.284 s).
+
+Server job 122535673841 has 3,876 passes, one skip and one failure in the
+unchanged expiry-worker retry/drain timing test; cleanup also reports that
+test's retained injected error. The entire server/database tree and this
+fixture are identical on qualification source `b64cac6951`, whose job
+122536300082 passes all 20 expiry cases and all 3,877 shard cases. The fixture
+advances fake time while asynchronous retry work can be in flight. One
+diagnostic retry of the failed current-head server job is authorized and
+requested; the exact timing race is not proven and no assertion is weakened.
+A repeated failure requires investigation, not another retry. This record does
+not mark that gate green before the retry finishes.
 
 ### Per-replacement identity and malformed receipt retention
 
@@ -1513,6 +1600,18 @@ and journal entry is preserved; snapshots 0389–0393 remain. Migration checks,
 server typecheck and all 13 warm-owner variants pass. No runtime recovery
 behavior changes in this integration, and fresh exact-head CI and reviews
 are required. No hosted fixture, deployment, budget or access changes.
+
+### Transcript contribution-rule review
+
+The transcript review found explanatory code comments that conflict with the
+contribution guide. The 104 comments introduced by that slice are removed, and
+the useful ordering, deadline and plugin-delivery explanations are kept in
+`doc/live-transcript-delivery.md`. Existing comments and executable test/lint
+directives remain. Parsing every edited source before and after removal gives
+identical non-comment tokens. The six-file server delivery lane passes all 50
+cases, six affected UI suites pass all 91 cases, and token gates pass. No new
+test or runtime behavior is introduced; fresh exact-head CI and review remain
+required for the new transcript head.
 
 ### Eighth master integration after reviewer continuation
 
@@ -1615,3 +1714,25 @@ the deterministic preservation suite. The corrected batch explicitly includes
 both preservation suites and passes all 158 cases across 13 files. The earlier
 146-case receipt retains its own source and selection; these counts do not imply
 identical test inventories. E2E typecheck also passes after master integration.
+
+
+After the server squash merge and qualification retarget, the transcript slice
+again passes 50 focused server cases, 91 focused UI cases, both typechecks and
+token gates. Runner vendor preparation rebuilds the current master inputs before
+those tests. No new browser journey or hosted experiment is claimed. The old
+browser receipts remain attributed to their source; new-head CI and reviews are
+still required before the transcript slice can merge.
+
+
+### Qualification slice merged; transcript slice retargeted to master
+
+PR #17455 source `8f1d6ec02f5bf6c90e7b27da8156953cabd9a180` merged as
+`6987c2f20bf2978c84f9c69b9840586407dfad29` after all 57 current-head checks
+completed cleanly, legacy status passed, both completed reviews scored 5/5, and
+actionable feedback was resolved. The transcript slice now targets master.
+Its evidence-document add/add conflict retains every line of the merged
+qualification record and the transcript evidence additions. No production code
+changes during this retarget; the 50 server/91 UI cases, typechecks and token
+checks retain their prior source attribution. Fresh exact-head CI and reviews
+remain required. The hosted active-agent matrix and genuine A/B upgrades remain
+open acceptance work; these merges do not qualify them.
