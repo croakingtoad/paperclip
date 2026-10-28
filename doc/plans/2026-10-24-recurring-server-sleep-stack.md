@@ -16,7 +16,7 @@ Do not mark an item done from a timer removal or a green check alone.
 | 02 | Remaining chat maintenance | Provider runtime discovery; voice reconciliation; milestones; wake notices; interaction continuations; terminal confirmations; GitHub recovery; Teams maintenance, separately by owner | Pending |
 | 03 | Run and task recovery | Orphan runs and active leases; shutdown workspace settlement; scheduled retries; queued runs; stranded assignments; resolved dependencies; task watchdogs; silent-run monitoring; stale locks | Pending |
 | 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Retention pending; archive delivery [#17475](https://github.com/paperclipai/paperclip/pull/17475) merged after exact-head 5/5 reviews and passing current CI |
-| 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478) merged; expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479) merged; effects [#17482](https://github.com/paperclipai/paperclip/pull/17482) merged; targets [#17486](https://github.com/paperclipai/paperclip/pull/17486) await current-head review/CI gates |
+| 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478) merged; expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479) merged; effects [#17482](https://github.com/paperclipai/paperclip/pull/17482) merged; targets [#17486](https://github.com/paperclipai/paperclip/pull/17486) merged |
 
 
 
@@ -32,6 +32,7 @@ Do not mark an item done from a timer removal or a green check alone.
 | 14 | Skill-version retention and native-harness backup expiration | Separate retention owners and existing retention guarantees | Pending |
 | 15 | Automatic database backups | Shared scheduling, actual backup deadlines, existing checkpoint contract | Pending |
 | 16 | Aggregate maintenance tick | Retire enabled and disabled branches after all constituent owners migrate | Pending |
+| 17 | Grok routine dispatch | Committed reservations and feature changes; prepared-only recovery | Slice 13 implemented, local verification in progress |
 
 ## Stack and verification contract
 
@@ -768,3 +769,40 @@ that landed dependency and preserves four independent Runner E2E accounting
 files. All runtime and acceptance test sources are byte-identical to its tested
 `85ce6545bf` tree (248 cases, server types/build). Fresh final-head CI and reviews
 remain required after retargeting to master.
+
+## Slice 13: Grok routine dispatch
+
+The one-second idle scan is replaced with a shared-coordinator worker. The existing
+reservation and experimental-settings transactions notify it; the Grok service
+retains all authority, claims, delivery, and uncertainty handling. Prepared-only
+selection uses a concurrent partial index. The 21 lifecycle cases, 45 existing
+Grok cases, and 39 startup cases pass together (105). Workspace typecheck passes.
+See [Grok dispatch](../idle-grok-dispatch.md). Build, populated query proof, PR
+publication, and fresh review/CI remain required. Decision retention and every
+other pending inventory owner remain in scope.
+
+
+Slice 13 final local verification also passes all 154 affected settings cases
+(259 selected tests total), workspace typecheck, production build, migration
+checks/replay, and a generic-plan query probe with 40,000 completed dispatches.
+Both queries use the prepared-only partial index with six shared buffers,
+including the routine join. Remote CI/review remain required.
+
+
+Slice 13 normally integrates target parent `85ce6545bf`. Its Grok implementation
+is unchanged; migration 0391 is regenerated after the current parent's history.
+All 389 parent journal entries are preserved and five snapshots remain. All 273
+cases across nine complete dispatch/qualification/startup/deadline/settings
+suites, server types/build, schema drift, migration safety and fresh apply/replay
+pass. Prior browser fixture-cleanup failure evidence remains in its owning audit.
+Fresh current-head CI and Greptile/Ponytail are required before merge.
+
+
+Slice 12 merged `e6dff4b06f` → `8dfed893d8` after exact-head Greptile/Ponytail 5/5
+and all 58 checks passed or were neutral/skipped. One failed-job retry passed;
+the original CLI startup/ZIP timeouts and local startup limitation remain in its
+PR evidence. Slice 13 normally integrates that landed dependency and four
+independent Runner E2E accounting files. All runtime and acceptance sources match
+its tested/reviewed `679f523d78` tree; the 273-case, type/build and migration
+receipts retain their original revisions. Migration 0391 and all parent journal
+entries are unchanged. Fresh final-head CI and reviews required against master.

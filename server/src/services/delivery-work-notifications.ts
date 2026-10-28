@@ -50,6 +50,7 @@ export const DELIVERY_QUEUES = {
   museMaintenance: "muse-maintenance",
   mcpEvents: "mcp-events",
   dotEvents: "dot-events",
+  grokDispatch: "grok-dispatch",
   skillSourceSync: "skill-source-sync",
   fastResponse: "fast-responses",
   feedback: "feedback-exports",
