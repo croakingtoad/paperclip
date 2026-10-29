@@ -23,7 +23,7 @@ export function registerDeadlineWork(
     pausePassiveMaintenance: true,
     onSettled: () => { requested++; },
     run: async signal => {
-      if (!task.canRun()) { requested++; return; }
+      if (!task.canRun()) { requested++; next = null; return; }
       if (Date.now() < earliest) { next = earliest; return; }
       if (Date.now() < coalesceUntil && (next === null || next > Date.now())) {
         next = next === null ? coalesceUntil : Math.min(next, coalesceUntil);
@@ -33,8 +33,12 @@ export function registerDeadlineWork(
       const startedAt = Date.now();
       earliest = startedAt + task.retryMs;
       await task.run(signal);
-      if (signal.aborted) return;
+      if (signal.aborted || !task.canRun()) { next = null; return; }
       const deadline = await task.next();
+
+
+
+      if (!task.canRun()) { next = null; return; }
       // Back off failed or still-overdue work, not a successfully read future deadline.
       earliest = deadline === null || deadline > Date.now()
         ? 0 : startedAt + (task.continuationMs ?? task.retryMs);
