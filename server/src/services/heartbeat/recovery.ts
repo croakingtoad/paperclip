@@ -1,3 +1,5 @@
+import { retainedNativeSessionCleanupWork } from "../native-runtime/retained-native-session-cleanup-work.js";
+import { reconcileRetainedNativeSessionCleanups } from "../native-runtime/retained-native-session-cleanup.js";
 import { createScheduledRetryCancellationRecovery } from "./scheduled-retry-cancellation.js";
 import { pendingCleanupDeadlineSql } from "../environment-cleanup-state.js";
 import { writeEnvironmentCleanup } from "../environment-cleanup-notifications.js";
@@ -57,9 +59,7 @@ import {
   type NativeRestartRecoveryClaim,
   reconcileNativeFinalizations,
   reconcileRetainedNativeSessionCleanup,
-  reconcileRetainedNativeSessionCleanups,
 } from "../native-runtime/index.js";
-import { drainRetainedRunnerdMaintenanceOperations } from "../../vendor/paperclip-runner/index.js";
 import { runningProcesses } from "../../adapters/index.js";
 import { parseObject } from "../../adapters/utils.js";
 import {
@@ -1920,12 +1920,23 @@ export function createHeartbeatRecovery(db: Db, dependencies: HeartbeatRecoveryD
     ).catch(() => undefined);
   }
 
+  function cleanupRetainedNativeSession(input: { companyId: string; runId: string }) {
+    const operation = reconcileRetainedNativeSessionCleanup(db, input);
+
+
+    const tracked = operation.then(() => undefined, () => undefined);
+    activeRunExecutionPromises.add(tracked);
+    void tracked.then(() => activeRunExecutionPromises.delete(tracked));
+    return operation;
+  }
+  const retainedNativeCleanup = retainedNativeSessionCleanupWork(db, cleanupRetainedNativeSession);
+
   function scheduleRetainedNativeSessionCleanup() {
     // The per-database sweep joins startup and periodic callers. One bounded
     // control-only repair must not hold up unrelated provider ingress or the
     // entire orphan reaper, but shutdown must still await its physical owner.
     const cleanup = reconcileRetainedNativeSessionCleanups(db, {
-      cleanup: (input) => reconcileRetainedNativeSessionCleanup(db, input),
+      cleanup: cleanupRetainedNativeSession,
       onError: (error, runId) => {
         logger.warn(
           { err: error, runId },
@@ -1936,18 +1947,14 @@ export function createHeartbeatRecovery(db: Db, dependencies: HeartbeatRecoveryD
       .then(() => undefined)
       .catch((error) => {
         logger.warn({ err: error }, "retained native cleanup discovery failed");
-      })
-      // The bounded maintenance attempt may fail before an already-started
-      // database callback settles. Keep shutdown ownership until the original
-      // operations finish; their timeout cannot authorize closing the database.
-      .finally(() => drainRetainedRunnerdMaintenanceOperations());
+      });
     activeRunExecutionPromises.add(cleanup);
     void cleanup.finally(() => activeRunExecutionPromises.delete(cleanup));
   }
 
   let settledProcessesDiscovered = false;
 
-  async function reapOrphanedRuns(opts?: { staleThresholdMs?: number; skipScheduledRetryCancellation?: boolean; skipCapturedInstructionCommit?: boolean; skipInstructionDirectoryCleanup?: boolean; skipStoppedInstructionCollection?: boolean; skipCancelledWorkspacePreservation?: boolean; skipObsoletePolicyReviews?: boolean; skipAutomaticCompletionReviews?: boolean; skipUnsafeWorkspaceExports?: boolean; skipNativePendingEffects?: boolean; skipNativeResponsePresentation?: boolean; skipNativeReviewResponse?: boolean; skipNativeStatusReassessment?: boolean }) {
+  async function reapOrphanedRuns(opts?: { staleThresholdMs?: number; skipScheduledRetryCancellation?: boolean; skipCapturedInstructionCommit?: boolean; skipInstructionDirectoryCleanup?: boolean; skipStoppedInstructionCollection?: boolean; skipCancelledWorkspacePreservation?: boolean; skipObsoletePolicyReviews?: boolean; skipAutomaticCompletionReviews?: boolean; skipUnsafeWorkspaceExports?: boolean; skipNativePendingEffects?: boolean; skipNativeResponsePresentation?: boolean; skipNativeReviewResponse?: boolean; skipNativeStatusReassessment?: boolean; skipRetainedNativeSessionCleanup?: boolean }) {
     if (!opts?.skipCancelledWorkspacePreservation) await preserveCancelledNativeWorkspaces(db);
     const staleThresholdMs = opts?.staleThresholdMs ?? 0;
     const now = new Date();
@@ -1981,7 +1988,7 @@ export function createHeartbeatRecovery(db: Db, dependencies: HeartbeatRecoveryD
         "failed to reconcile persisted native finalizations before orphan reaping",
       );
     });
-    scheduleRetainedNativeSessionCleanup();
+    if (!opts?.skipRetainedNativeSessionCleanup) scheduleRetainedNativeSessionCleanup();
     await reconcileRetainedWorkspaces(db, environmentRuntime, resumeRemoteStopComments);
     await dispatchPendingNativeStatusWakeups().catch((error) => {
       logger.warn(
@@ -2584,6 +2591,7 @@ export function createHeartbeatRecovery(db: Db, dependencies: HeartbeatRecoveryD
   }
 
   return {
+    registerRetainedNativeSessionCleanupWork: retainedNativeCleanup.register,
     registerScheduledRetryCancellationWork: scheduledRetryCancellation.register,
     sweepPendingCleanupLeases,
     markNativeOwnershipUnverified,
