@@ -1,3 +1,4 @@
+import { notifyNativeWorkspaceFinalization } from "./native-workspace-finalization-notifications.js";
 import { notifyRetainedNativeSessionCleanup } from "./retained-native-session-cleanup-notifications.js";
 import { notifyNativeStatusReassessment } from "./native-status-reassessment-notifications.js";
 import { notifyNativeReviewResponse } from "./native-review-response-notifications.js";
@@ -8,6 +9,7 @@ export type NativeFinalizationWorkScope = { companyId: string; runId?: string; i
 
 export async function notifyNativeFinalizationWork(transaction: object, scope: NativeFinalizationWorkScope) {
   if (scope.issueId || scope.runId) {
+    await notifyNativeWorkspaceFinalization(transaction, scope);
     await notifyRetainedNativeSessionCleanup(transaction, scope);
     await notifyNativeStatusReassessment(transaction, scope);
     await notifyNativeResponsePresentation(transaction, scope);
