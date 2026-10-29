@@ -1,3 +1,4 @@
+import { notifyNativeReviewResponse } from "./native-review-response-notifications.js";
 import { notifyNativeResponsePresentation } from "./native-response-presentation-notifications.js";
 import { notifyChatResponseAvailability } from "./chat-response-availability.js";
 import { notifyChatConfirmationWork } from "./chat-confirmation-notifications.js";
@@ -11,6 +12,8 @@ export type ChatRunMilestoneScope = { companyId: string; issueId?: string; runId
 
 export async function notifyChatRunMilestones(tx: object, scope: ChatRunMilestoneScope) {
   if (scope.issueId || scope.runId) {
+    await notifyNativeReviewResponse(tx, { companyId: scope.companyId, issueId: scope.issueId,
+      runId: scope.issueId ? undefined : scope.runId });
     await notifyNativeResponsePresentation(tx, { companyId: scope.companyId, issueId: scope.issueId,
       runId: scope.issueId ? undefined : scope.runId });
   }
@@ -30,4 +33,5 @@ export async function notifyChatRunMilestones(tx: object, scope: ChatRunMileston
 export async function notifyChatCompanyAuthorityChange(tx: object, scope: { companyId: string }) {
   await notifyChatRunMilestones(tx, scope);
   await notifyNativeResponsePresentation(tx, scope);
+  await notifyNativeReviewResponse(tx, scope);
 }
