@@ -1,3 +1,4 @@
+import { notifyNativeStatusReassessment } from "../native-status-reassessment-notifications.js";
 import { notifyUnsafeWorkspaceExportRecovery, notifyUnsafeWorkspaceExportRunChange } from "../unsafe-workspace-export-notifications.js";
 import { notifyCancelledWorkspacePreservation } from "../cancelled-workspace-preservation-notifications.js";
 import { notifyInstructionCollection } from "../instruction-collection-notifications.js";
@@ -1803,6 +1804,7 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
 
     await db.transaction(async tx => {
       await notifyUnsafeWorkspaceExportRecovery(tx, { companyId: run.companyId, issueId });
+      await notifyNativeStatusReassessment(tx, { companyId: run.companyId, issueId });
       await tx
       .update(issues)
       .set({
@@ -3694,6 +3696,7 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
           }
 
           if (!activeExecutionRun && issue.executionRunId) {
+            await notifyNativeStatusReassessment(tx, { companyId: issue.companyId, issueId: issue.id });
             await notifyUnsafeWorkspaceExportRecovery(tx, { companyId: issue.companyId, issueId: issue.id });
             await tx
               .update(issues)
@@ -3893,6 +3896,7 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
                 `- Next action: ${WORKSPACE_WORKTREE_REQUIRES_PROJECT_REMEDIATION}`,
               ].join("\n");
               await notifyUnsafeWorkspaceExportRecovery(tx, { companyId: issue.companyId, issueId: issue.id });
+              await notifyNativeStatusReassessment(tx, { companyId: issue.companyId, issueId: issue.id });
               if (issue.status !== "blocked") await notifyChatResponseAvailability(tx, { companyId: issue.companyId, issueId: issue.id });
               await tx
                 .update(issues)
