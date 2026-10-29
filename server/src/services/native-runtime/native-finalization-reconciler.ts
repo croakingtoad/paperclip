@@ -1,3 +1,4 @@
+import { notifyUnsafeWorkspaceExportRunChange } from "../unsafe-workspace-export-notifications.js";
 import { notifyCancelledWorkspacePreservation } from "../cancelled-workspace-preservation-notifications.js";
 import { notifyInstructionCollection } from "../instruction-collection-notifications.js";
 import { readRequiredQualityReview } from "../required-quality-review.js";
@@ -519,6 +520,7 @@ export async function claimNativeSessionResumptions(input: {
         }).where(eq(nativeRunFinalizations.runId, row.run.id));
         await notifyInstructionCollection(tx, { companyId: row.run.companyId, runId: row.run.id });
         await notifyCancelledWorkspacePreservation(tx, { companyId: row.run.companyId, runId: row.run.id });
+        await notifyUnsafeWorkspaceExportRunChange(tx, row.run);
         const [updatedRun] = await tx.update(heartbeatRuns).set({
           status: "failed",
           finishedAt: now,
@@ -639,6 +641,7 @@ export async function claimNativeSessionResumptions(input: {
 type NativeReconciliationOptions = {
   skipObsoletePolicyReviews?: boolean;
   skipAutomaticCompletionReviews?: boolean;
+  skipUnsafeWorkspaceExports?: boolean;
   pluginWorkerManager?: WorkspaceWorkers;
   environmentRuntime?: EnvironmentRuntimeService;
   onWorkspaceSettled?: (input: {
@@ -721,10 +724,12 @@ async function reconcileNativeFinalizationsPass(
   options: NativeReconciliationOptions,
   timing: NativeReconciliationPassTiming,
 ) {
-  timing.phase("legacy_workspace_exports");
-  await recoverLegacyUnsafeWorkspaceExports(db, runIds).catch((err) => {
-    logger.warn({ err }, "Historical unsafe export recovery remains pending");
-  });
+  if (!options.skipUnsafeWorkspaceExports) {
+    timing.phase("legacy_workspace_exports");
+    await recoverLegacyUnsafeWorkspaceExports(db, runIds).catch((err) => {
+      logger.warn({ err }, "Historical unsafe export recovery remains pending");
+    });
+  }
   if (!options.skipObsoletePolicyReviews) {
     timing.phase("obsolete_policy_reviews");
     await dismissObsoleteNativePolicyReviews(db, runIds).catch((err) => {
