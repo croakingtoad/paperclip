@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as serverUtils from "@paperclipai/adapter-utils/server-utils";
 import {
+  listGatewayProviders,
   discoverOpenCodeModels,
   ensureOpenCodeModelConfiguredAndAvailable,
   listGatewayProviderModels,
@@ -467,5 +468,35 @@ describe("openCode models", () => {
     await vi.runAllTimersAsync();
     await assertion;
     expect(spy).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("listGatewayProviders", () => {
+  afterEach(() => {
+    delete process.env.PAPERCLIP_OPENCODE_PROVIDERS;
+  });
+
+  it("returns a display baseUrl without credentials, query or fragment", () => {
+    process.env.PAPERCLIP_OPENCODE_PROVIDERS = JSON.stringify({
+      "vllm-fleet": { options: { baseURL: "http://user:pass@100.64.0.1:65000/v1?key=secret#frag" }, models: {} },
+      "plain": { options: { baseURL: "https://gateway.example/v1" }, models: {} },
+    });
+    expect(listGatewayProviders()).toEqual([
+      { id: "vllm-fleet", baseUrl: "http://100.64.0.1:65000/v1" },
+      { id: "plain", baseUrl: "https://gateway.example/v1" },
+    ]);
+  });
+
+  it("hides env placeholders and non-http URLs", () => {
+    process.env.PAPERCLIP_OPENCODE_PROVIDERS = JSON.stringify({
+      "templated": { options: { baseURL: "{env:GATEWAY_URL}" }, models: {} },
+      "file": { options: { baseURL: "file:///etc/passwd" }, models: {} },
+      "none": { models: {} },
+    });
+    expect(listGatewayProviders()).toEqual([
+      { id: "templated", baseUrl: null },
+      { id: "file", baseUrl: null },
+      { id: "none", baseUrl: null },
+    ]);
   });
 });
