@@ -6,7 +6,7 @@ import { forbidden, notFound } from "../errors.js";
 import { accessService, agentService, heartbeatService, instanceSettingsService, logActivity } from "../services/index.js";
 import { queueIssueAssignmentWakeup } from "../services/issue-assignment-wakeup.js";
 import { summarySlotService, SUMMARIZER_BUILT_IN_KEY } from "../services/summary-slots.js";
-import { readBuiltInAgentMarker } from "../services/built-in-agent-metadata.js";
+import { readBuiltInAgentMarker } from "../lib/built-in-agent-metadata.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 
 function readScopeId(req: Request): string | null {
