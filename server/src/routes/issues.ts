@@ -12711,6 +12711,10 @@ export function issueRoutes(
         "Issue not found",
       );
       if (!source) return;
+      // Company membership is not enough: a private issue is readable only by
+      // its grantees, and the copy would expose its title, description and
+      // documents. No break-glass here — that path is for reading, not copying.
+      if (!(await assertIssueReadAllowed(req, res, source))) return;
       const { targetCompanyId, targetProjectId } =
         req.body as TransferIssueToCompany;
       if (targetCompanyId === source.companyId) {
@@ -12730,6 +12734,16 @@ export function issueRoutes(
         .where(eq(projects.id, targetProjectId))
         .then((rows) => rows[0] ?? null);
       if (!targetProject || targetProject.companyId !== targetCompanyId) {
+        res.status(404).json({ error: "Target project not found" });
+        return;
+      }
+      // Same project gate the regular create route applies to its projectId.
+      const targetProjectDecision = await access.decide({
+        actor: req.actor,
+        action: "project:read",
+        resource: { type: "project", companyId: targetCompanyId, projectId: targetProject.id },
+      });
+      if (!targetProjectDecision.allowed) {
         res.status(404).json({ error: "Target project not found" });
         return;
       }
