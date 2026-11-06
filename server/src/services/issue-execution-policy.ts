@@ -639,7 +639,14 @@ function clearExecutionStatePatch(input: {
   returnAssignee: IssueExecutionStagePrincipal | null;
 }) {
   input.patch.executionState = null;
-  if (input.issueStatus === "in_review" && input.returnAssignee) {
+  // Hand the work back to the executor when the review simply ends (no
+  // requested status) or is sent back for changes (in_progress). Any other
+  // requested status — cancelled, blocked — abandons the cycle without
+  // reassigning, so the caller's status stands on its own.
+  if (
+    input.issueStatus === "in_review" && input.returnAssignee
+    && (input.requestedStatus === undefined || input.requestedStatus === "in_progress")
+  ) {
     if (input.requestedStatus === undefined) {
       input.patch.status = "in_progress";
     }
