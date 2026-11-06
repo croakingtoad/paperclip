@@ -212,6 +212,13 @@ describe("hermes-local adapter onSpawn forwarding", () => {
   // flushes the filter once it exits. Replaying stdout after execute() returns
   // would hit a filter that has already stopped, and would pass either way.
   // https://github.com/paperclipai/paperclip/pull/14845#discussion_r4156807288
+  const LONG_ECHO_PROMPT = [
+    "You are {{agent.name}}, working on a Paperclip task.",
+    "Read the issue, check the acceptance criteria, and make the smallest change that satisfies them.",
+    "Run the relevant tests before you report back, and say plainly what you verified and what you did not.",
+    "When you are done, post a short comment on the issue with the result and any follow-up the team should plan.",
+  ].join("\n");
+
   async function runEchoingStdout(quiet: boolean) {
     vi.mocked(serverUtils.runChildProcess).mockImplementationOnce(
       async (_runId: any, _cmd: any, args: any, opts: any) => {
@@ -226,7 +233,9 @@ describe("hermes-local adapter onSpawn forwarding", () => {
       },
     );
 
-    const { ctx } = makeCtx({ quiet });
+    // The filter only acts on prompts of 200+ significant characters, and the
+    // default template is shorter than that, so give it a realistic long task.
+    const { ctx } = makeCtx({ quiet, promptTemplate: LONG_ECHO_PROMPT });
     await execute(ctx as any);
 
     const args = vi.mocked(serverUtils.runChildProcess).mock.calls.at(-1)![2] as string[];
