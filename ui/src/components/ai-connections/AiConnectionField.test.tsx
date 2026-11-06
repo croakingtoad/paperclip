@@ -75,7 +75,7 @@ describe("AiConnectionField gateway box", () => {
     expect(container.textContent).toContain("Inference gateway: vllm-fleet");
     expect(container.textContent).toContain("http://100.115.234.63:65000/v1");
     expect(container.textContent).toContain("Billing & auth");
-    expect(container.textContent).not.toContain("AI connection");
+    expect(container.textContent).toContain("Billing & auth connection");
   });
 
   it("names the gateway for a vllm_fleet agent and keeps the connection billing-only", () => {
@@ -98,7 +98,7 @@ describe("AiConnectionField gateway box", () => {
     const container = mount("opencode_local", "openai/gpt-5.2-codex");
 
     expect(container.textContent).not.toContain("Inference gateway:");
-    expect(container.textContent).toContain("AI connection");
+    expect(container.textContent).toContain("Connection");
     expect(container.textContent).not.toContain("Billing & auth");
   });
 
@@ -108,6 +108,6 @@ describe("AiConnectionField gateway box", () => {
 
     expect(mockAgentsApi.opencodeGatewayProviders).not.toHaveBeenCalled();
     expect(container.textContent).not.toContain("Inference gateway:");
-    expect(container.textContent).toContain("AI connection");
+    expect(container.textContent).toContain("Connection");
   });
 });
