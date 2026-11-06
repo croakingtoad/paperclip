@@ -112,7 +112,7 @@ export function buildExecutionPolicy(input: {
 
   for (const stageType of ISSUE_EXECUTION_STAGE_TYPES) {
     const existingStage = existingPolicy?.stages.find((stage) => stage.type === stageType);
-    const values = input.stageValues[stageType] ?? stageParticipantValues(existingPolicy, stageType);
+    const values = input.stageValues[stageType] ?? stageParticipantValues(input.existingPolicy, stageType);
     const participants = mergeParticipants(existingStage?.participants, values);
     if (participants.length === 0) continue;
     stages.push({
