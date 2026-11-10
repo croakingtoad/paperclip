@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { SETUP_TOKEN_PROMPT } from "./setup-token-parse.js";
 import {
@@ -295,6 +298,27 @@ describe("runSetupTokenLogin", () => {
     const bytes = onCredential.mock.calls[0][0] as Buffer;
     expect(Buffer.isBuffer(bytes)).toBe(true);
     expect(bytes.every((byte) => byte === 0)).toBe(true);
+  });
+
+  it("delivers the token from a differential-rendered success screen", async () => {
+    // A real claude 2.1.322 stream whose success screen reuses letters drawn
+    // before the prompt surfaced. Split it where the live stream crossed the prompt.
+    const fixture = JSON.parse(readFileSync(path.join(
+      path.dirname(fileURLToPath(import.meta.url)), "__fixtures__", "setup-token-diff-render.json",
+    ), "utf8")) as { token: string; stream: string };
+    const split = fixture.stream.indexOf("\x1b[>0q");
+    expect(split).toBeGreaterThan(0);
+    const fake = createFakeDriver({ chunks: [fixture.stream.slice(0, split), fixture.stream.slice(split)], exitCode: 0 });
+    let received: string | null = null;
+    const result = await runSetupTokenLogin(fake.driver, {
+      onPrompt: () => {},
+      provideCode: async () => BROWSER_CODE,
+      onCredential: async (bytes) => { received = bytes.toString("utf8"); },
+      timeoutMs: 1000,
+    });
+    expect(result.outcome).toBe("success");
+    expect(result.credentialDelivered).toBe(true);
+    expect(received).toBe(fixture.token);
   });
 
   it("keeps the token out of every log, result, and error field", async () => {

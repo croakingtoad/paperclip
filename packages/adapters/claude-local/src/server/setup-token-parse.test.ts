@@ -12,6 +12,7 @@ import {
   SETUP_TOKEN_URL_QUERY_KEYS,
   parseSetupTokenCredential,
   parseSetupTokenPrompt,
+  renderTerminalScreen,
 } from "./setup-token-parse.js";
 
 const fixturesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "__fixtures__");
@@ -692,5 +693,40 @@ describe("parseSetupTokenCredential", () => {
     expect(fixture).toContain(SETUP_TOKEN_BEFORE_ANCHOR);
     expect(fixture).toContain(SETUP_TOKEN_AFTER_ANCHOR);
     expect(fixture).toContain(SETUP_TOKEN_PREFIX);
+  });
+});
+
+describe("differential-rendered success screen", () => {
+  // A real claude 2.1.322 stream. The CLI skips the cells that already hold the
+  // right letter, so the raw after-anchor line reads "Store this…token…curely.".
+  const diffRender = JSON.parse(readFixture("setup-token-diff-render.json")) as { token: string; stream: string };
+
+  it("binds the token from the real differential-rendered stream", () => {
+    expect(diffRender.stream).not.toContain(SETUP_TOKEN_AFTER_ANCHOR);
+    expect(parseSetupTokenCredential(diffRender.stream)).toBe(diffRender.token);
+  });
+
+  it("restores the skipped cells from the earlier frame", () => {
+    const screen = renderTerminalScreen(diffRender.stream).split("\n").map((line) => line.trim());
+    expect(screen).toContain(SETUP_TOKEN_BEFORE_ANCHOR);
+    expect(screen).toContain(SETUP_TOKEN_AFTER_ANCHOR);
+  });
+
+  it("applies relative and absolute cursor moves over unchanged cells", () => {
+    expect(renderTerminalScreen("abcdef\r\x1b[2Cxy")).toBe("abxyef");
+    expect(renderTerminalScreen("one\r\ntwo\x1b[1A\x1b[1Gz")).toBe("zne\ntwo");
+    expect(renderTerminalScreen("keep\x1b[2Ggone\x1b[3G\x1b[K")).toBe("kg");
+    expect(renderTerminalScreen("\x1b]8;;https://x.test\x07link\x1b]8;;\x07!")).toBe("link!");
+  });
+
+  it("still fails closed on the rendered screen", () => {
+    const token = `${SETUP_TOKEN_PREFIX}${"A".repeat(40)}`;
+    // A token-shaped value with no success record.
+    expect(parseSetupTokenCredential(`\x1b[2G${token}\r\n`)).toBeNull();
+    // A stray prose line between the anchors.
+    const prose = [SETUP_TOKEN_BEFORE_ANCHOR, token, "\x1b[3Gnot a token", SETUP_TOKEN_AFTER_ANCHOR].join("\r\n");
+    expect(parseSetupTokenCredential(prose)).toBeNull();
+    // A tampered token tail on the real stream.
+    expect(parseSetupTokenCredential(diffRender.stream.replace(/AAA\r/, "A A\r"))).toBeNull();
   });
 });

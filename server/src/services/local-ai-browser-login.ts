@@ -6,6 +6,7 @@ import { runSetupTokenLogin } from "@paperclipai/adapter-claude-local/server";
 import { runDeviceLogin } from "@paperclipai/adapter-codex-local/server";
 import { ensureCommandResolvable, resolveCommandForLogs } from "@paperclipai/adapter-utils/server-utils";
 import { resolveCodexCommand, startAntigravityBrowserLogin } from "../vendor/paperclip-runner/index.js";
+import { logger } from "../middleware/logger.js";
 
 export type LocalBrowserLoginState = {
   authorizationUrl?: string;
@@ -104,6 +105,8 @@ export function startLocalBrowserLogin(provider: "anthropic" | "openai" | "googl
     state.submitCode = (code) => { deliverCode?.(code); deliverCode = undefined; };
     void runSetupTokenLogin(driver, {
       timeoutMs: 300_000, signal: controller.signal,
+      // The runner's lines are fixed status text with no URL, code, or token byte.
+      log: (line) => logger.info(line),
       onPrompt: (prompt) => { state.authorizationUrl = prompt.url; },
       provideCode: (signal) => new Promise<string>((resolve, reject) => {
         const abort = () => reject(new Error("Local sign-in cancelled"));

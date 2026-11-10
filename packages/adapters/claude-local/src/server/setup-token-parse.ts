@@ -500,8 +500,123 @@ export function parseSetupTokenCredential(text: string): string | null {
   // delimiter only. It cannot add a token byte, and the interval validation
   // below still rejects partial, extra, or prose data.
   const normalized = clean.replace(/\r\n|\r/g, "\n");
-  const lines = normalized.split("\n");
+  return (
+    credentialFromLines(normalized.split("\n")) ??
+    // The CLI renderer redraws only the cells that changed since its previous
+    // frame and jumps the cursor over unchanged ones, so a stripped stream can
+    // miss letters that were already on screen. Replay the stream onto a
+    // virtual screen and read the same record from what a terminal would show.
+    credentialFromLines(renderTerminalScreen(text).split("\n"))
+  );
+}
 
+const MAX_SCREEN_ROWS = 2000;
+const MAX_SCREEN_COLUMNS = 1000;
+const TAB_WIDTH = 8;
+
+/**
+ * Replays a terminal output stream onto a virtual screen and returns the final
+ * screen text, one row per line with trailing blanks removed. It applies
+ * printable characters, carriage return, line feed, backspace, tab, relative and
+ * absolute cursor moves, line and screen erases, and cursor save and restore. It
+ * ignores every other control sequence. The screen has no fixed width or
+ * height, so it does not wrap or scroll; the CLI positions every line itself.
+ * It is a pure function and never logs any input byte.
+ */
+export function renderTerminalScreen(text: string): string {
+  const rows: string[][] = [[]];
+  let row = 0;
+  let col = 0;
+  let saved = { row: 0, col: 0 };
+  const line = (r: number): string[] => {
+    while (rows.length <= r) rows.push([]);
+    return rows[r];
+  };
+  const moveTo = (r: number, c: number) => {
+    row = Math.min(Math.max(r, 0), MAX_SCREEN_ROWS - 1);
+    col = Math.min(Math.max(c, 0), MAX_SCREEN_COLUMNS - 1);
+  };
+  const chars = Array.from(text);
+  for (let i = 0; i < chars.length; i += 1) {
+    const ch = chars[i];
+    if (ch === "\x1b") {
+      const next = chars[i + 1];
+      if (next === "[") {
+        let j = i + 2;
+        let params = "";
+        while (j < chars.length && /[0-?]/.test(chars[j])) params += chars[j++];
+        while (j < chars.length && /[ -/]/.test(chars[j])) j += 1;
+        const final = chars[j];
+        i = j;
+        if (params.startsWith("?") || params.startsWith(">") || params.startsWith("<") || params.startsWith("=")) continue;
+        const nums = params.split(";").map((p) => (p === "" ? NaN : Number(p)));
+        const n = Number.isFinite(nums[0]) && nums[0] > 0 ? nums[0] : 1;
+        switch (final) {
+          case "A": moveTo(row - n, col); break;
+          case "B": moveTo(row + n, col); break;
+          case "C": moveTo(row, col + n); break;
+          case "D": moveTo(row, col - n); break;
+          case "E": moveTo(row + n, 0); break;
+          case "F": moveTo(row - n, 0); break;
+          case "G": case "`": moveTo(row, n - 1); break;
+          case "d": moveTo(n - 1, col); break;
+          case "H": case "f": {
+            const c = Number.isFinite(nums[1]) && nums[1] > 0 ? nums[1] : 1;
+            moveTo(n - 1, c - 1);
+            break;
+          }
+          case "K": {
+            const cells = line(row);
+            const mode = Number.isFinite(nums[0]) ? nums[0] : 0;
+            if (mode === 0) cells.length = Math.min(cells.length, col);
+            else if (mode === 1) for (let k = 0; k <= col && k < cells.length; k += 1) cells[k] = " ";
+            else cells.length = 0;
+            break;
+          }
+          case "J": {
+            const mode = Number.isFinite(nums[0]) ? nums[0] : 0;
+            if (mode === 0) {
+              line(row).length = Math.min(line(row).length, col);
+              rows.length = Math.min(rows.length, row + 1);
+            } else if (mode === 2 || mode === 3) {
+              for (const cells of rows) cells.length = 0;
+            }
+            break;
+          }
+          default: break;
+        }
+        continue;
+      }
+      if (next === "]" || next === "P" || next === "_" || next === "^") {
+        // OSC/DCS/APC/PM strings end at BEL or ST; an unterminated one ends at the next ESC.
+        let j = i + 2;
+        while (j < chars.length && chars[j] !== "\x07" && chars[j] !== "\x1b") j += 1;
+        if (chars[j] === "\x1b" && chars[j + 1] === "\\") j += 1;
+        else if (chars[j] === "\x1b") j -= 1;
+        i = j;
+        continue;
+      }
+      if (next === "7") { saved = { row, col }; i += 1; continue; }
+      if (next === "8") { moveTo(saved.row, saved.col); i += 1; continue; }
+      if (next === "(" || next === ")" || next === "*" || next === "+" || next === "#") { i += 2; continue; }
+      i += 1;
+      continue;
+    }
+    if (ch === "\r") { col = 0; continue; }
+    if (ch === "\n") { moveTo(row + 1, col); continue; }
+    if (ch === "\b") { moveTo(row, col - 1); continue; }
+    if (ch === "\t") { moveTo(row, (Math.floor(col / TAB_WIDTH) + 1) * TAB_WIDTH); continue; }
+    if (ch < " " || ch === "\x7f") continue;
+    const cells = line(row);
+    while (cells.length < col) cells.push(" ");
+    cells[col] = ch;
+    moveTo(row, col + 1);
+  }
+  return rows.map((cells) => cells.map((c) => c ?? " ").join("").trimEnd()).join("\n");
+}
+
+/** Binds the token from one success record, or returns null. See {@link parseSetupTokenCredential}. */
+function credentialFromLines(lines: string[]): string | null {
   const beforeIndex = singleAnchorIndex(lines, SETUP_TOKEN_BEFORE_ANCHOR);
   const afterIndex = singleAnchorIndex(lines, SETUP_TOKEN_AFTER_ANCHOR);
   if (beforeIndex === null || afterIndex === null) return null;

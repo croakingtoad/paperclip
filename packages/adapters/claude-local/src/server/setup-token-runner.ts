@@ -242,6 +242,11 @@ export async function runSetupTokenLogin(
   // it binds the token. It bounds the retained window the same way as the prompt
   // buffer, so the secret-bearing stream never grows without a bound.
   let tokenBuffer = "";
+  // The screen drawn before the prompt surfaced. It holds the welcome text and
+  // the sign-in URL, never a token. The CLI redraws only the cells that changed,
+  // so the success screen can reuse letters drawn here; the credential parser
+  // replays both parts together to read what the terminal shows.
+  let promptScreen = "";
 
   // Reads the browser code and writes it to the matched prompt one time. The
   // routine never throws: it logs a fixed line on a provider error or a write
@@ -278,10 +283,11 @@ export async function runSetupTokenLogin(
   // bytes later, after a clean exit, through {@link deliverCredential}.
   const captureCredential = (): void => {
     if (!onCredential || tokenBytes) return;
-    const token = parseSetupTokenCredential(tokenBuffer);
+    const token = parseSetupTokenCredential(tokenBuffer) ?? parseSetupTokenCredential(promptScreen + tokenBuffer);
     if (!token) return;
     tokenBytes = Buffer.from(token, "utf8");
     tokenBuffer = "";
+    promptScreen = "";
   };
 
   // Awaits the mandatory sink one time with the bound token bytes and reports
@@ -315,6 +321,7 @@ export async function runSetupTokenLogin(
       const prompt = parseSetupTokenPrompt(buffer);
       if (prompt) {
         promptSurfaced = true;
+        promptScreen = buffer;
         buffer = "";
         onPrompt(prompt);
         log("[paperclip] Setup-token login: surfaced the sign-in prompt.");
